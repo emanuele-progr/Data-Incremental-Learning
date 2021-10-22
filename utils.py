@@ -1,8 +1,10 @@
 import uuid
 import torch
+import itertools
 import argparse
 import matplotlib
 import numpy as np
+import torch.nn as nn
 import pandas as pd
 matplotlib.use('Agg')
 import seaborn as sns
@@ -21,10 +23,10 @@ def parse_arguments():
 	parser.add_argument('--tasks', default=5, type=int, help='total number of tasks')
 	parser.add_argument('--epochs-per-task', default=1, type=int, help='epochs per task')
 	parser.add_argument('--dataset', default='rot-mnist', type=str, help='dataset. options: rot-mnist, perm-mnist, cifar100')
-	parser.add_argument('--batch-size', default=10, type=int, help='batch-size')
+	parser.add_argument('--batch-size', default=64, type=int, help='batch-size')
 	parser.add_argument('--lr', default=0.1, type=float, help='learning rate')
-	parser.add_argument('--gamma', default=0.4, type=float, help='learning rate decay. Use 1.0 for no decay')
-	parser.add_argument('--dropout', default=0.25, type=float, help='dropout probability. Use 0.0 for no dropout')
+	parser.add_argument('--gamma', default=0.0, type=float, help='learning rate decay. Use 1.0 for no decay')
+	parser.add_argument('--dropout', default=0.0, type=float, help='dropout probability. Use 0.0 for no dropout')
 	parser.add_argument('--hiddens', default=256, type=int, help='num of hidden neurons in each layer of a 2-layer MLP')
 	parser.add_argument('--compute-eigenspectrum', default=False, type=bool, help='compute eigenvalues/eigenvectors?')
 	parser.add_argument('--seed', default=1234, type=int, help='random seed')
@@ -145,3 +147,47 @@ def visualize_result(df, filename):
 	ax = sns.lineplot(data=df,  dashes=False)
 	ax.figure.savefig(filename, dpi=250)
 	plt.close()
+
+
+def compute_fisher_matrix_diag(train_loader, model, optimizer, current_task_id, sampling_type='true'):
+
+	fisher = {n: torch.zeros(p.shape).to(DEVICE) for n, p in model.named_parameters() if p.requires_grad}
+	n_samples_batches = (len(train_loader.dataset) // train_loader.batch_size)
+	criterion = nn.CrossEntropyLoss().to(DEVICE)
+	model.train()
+	loss = 0
+	for batch_idx, (data, target) in enumerate(train_loader):
+		data = data.to(DEVICE)
+		target = target.to(DEVICE)
+		# for cifar head
+		if current_task_id is not None:
+			output = model(data, current_task_id)
+		else:
+			output = model(data)
+		loss = criterion(output, target)
+			
+		optimizer.zero_grad()
+		loss.backward()
+		for n, p in model.named_parameters():
+			if p.grad is not None:
+				fisher[n] += p.grad.pow(2) * len(target)
+	
+	n_samples = n_samples_batches * train_loader.batch_size
+	fisher = {n: (p / n_samples) for n, p in fisher.items()}
+
+	return fisher
+
+def post_train_process(train_loader, model, optimizer, current_task_id, fisher):
+
+	alpha = 0.5
+
+	if current_task_id > 1:
+		current_fisher = compute_fisher_matrix_diag(train_loader, model, optimizer, current_task_id)
+		
+		for n in fisher.keys():
+			fisher[n] = (alpha * fisher[n] + (1 - alpha) * current_fisher[n])
+
+	return fisher
+
+
+

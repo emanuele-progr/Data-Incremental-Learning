@@ -9,7 +9,7 @@ import matplotlib.pyplot as plt
 import matplotlib.figure as figure
 from model import MLP, ResNet18, ResNet32
 from data_utils import get_permuted_mnist_tasks, get_rotated_mnist_tasks, get_split_cifar100_tasks2, get_split_cifar100_tasks, get_split_cifar10_tasks, get_split_cifar100_tasks_joint
-from utils import parse_arguments, DEVICE, init_experiment, end_experiment, log_metrics, save_checkpoint
+from utils import parse_arguments, DEVICE, init_experiment, end_experiment, log_metrics, save_checkpoint, post_train_process
 from sklearn.metrics import confusion_matrix
 
 
@@ -37,6 +37,42 @@ def train_single_epoch(net, optimizer, loader, criterion, task_id=None):
 			pred = net(data)
 		loss = criterion(pred, target)
 		loss.backward()
+		optimizer.step()
+	return net
+
+def train_single_epoch_ewc(net, optimizer, loader, criterion, old_params, fisher, task_id=None):
+	"""
+	Train the model for a single epoch
+	
+	:param net:
+	:param optimizer:
+	:param loader:
+	:param criterion:
+	:param task_id:
+	:return:
+	"""
+	lamb = 5000
+	net = net.to(DEVICE)
+	loss_penalty = 0
+
+	if task_id > 1:
+
+		
+		loss_penalty = ewc_penalty(net, fisher, old_params)
+		print(loss_penalty)
+	
+	net.train()
+	for batch_idx, (data, target) in enumerate(loader):
+		data = data.to(DEVICE)
+		target = target.to(DEVICE)
+		optimizer.zero_grad()
+		if task_id:
+			pred = net(data, task_id)
+		else:
+			pred = net(data)
+		loss = criterion(pred, target) + loss_penalty
+		print(loss)
+		loss.backward(retain_graph = True)
 		optimizer.step()
 	return net
 
@@ -164,6 +200,18 @@ def plot_conf_matrix(matrix):
     plt.show()
     plt.close()
 
+def ewc_penalty(model, fisher, older_params):
+	lamb = 5000
+	loss = 0
+	loss_reg = 0
+	for n, p in model.named_parameters():
+		if n in fisher.keys():
+			loss_reg += torch.sum(fisher[n] * (p - older_params[n]).pow(2))/2
+	loss += lamb * loss_reg
+
+	return loss
+
+
 
 def run(args):
 	"""
@@ -243,15 +291,19 @@ def run_experiment(args):
 	patience = 30
 	trigger_times = 0
 	check = 0
+	ewc = 1
 	#lr = [0.01, 0.001, 0.001, 0.001, 0.0001, 0.0001, 0.0001, 0.0001, 0.0001, 0.0001]
 	lr = [0.001, 0.0001, 0.0001, 0.0001, 0.0001, 0.00001, 0.00001, 0.00001, 0.00001, 0.00001]
 	#lr = [0.001, 0.0001, 0.0001, 0.00001, 0.00001]
+	
+	fisher = {n: torch.zeros(p.shape).to(DEVICE) for n, p in model.named_parameters() if p.requires_grad}
 
 
 	for current_task_id in range(1, args.tasks+1):
 		#lr = max(args.lr * args.gamma ** (current_task_id), 0.00005)
 		if args.compute_joint_incremental:
 			model = get_benchmark_model(args)
+		old_params = {n: p.clone().detach() for n,p in model.named_parameters() if p.requires_grad}
 		print("================== TASK {} / {} =================".format(current_task_id, args.tasks))
 		train_loader = tasks[current_task_id]['train']
 		optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)#lr=lr[current_task_id - 1])
@@ -259,16 +311,25 @@ def run_experiment(args):
 			model, optimizer = load_checkpoint(model, optimizer, 'check.pth')
 		
 		
+		
+		
+		
 		for epoch in range(1, args.epochs_per_task+1):
 			# 1. train and save
 
 			prev_model = model
 			prev_opt = optimizer
-			train_single_epoch(model, optimizer, train_loader, criterion, current_task_id)
+			if ewc == 1:
+				s = 'ok'
+				print(s)
+				train_single_epoch_ewc(model, optimizer, train_loader, criterion, old_params, fisher, current_task_id)
+			else:
+				train_single_epoch(model, optimizer, train_loader, criterion, current_task_id)
 			time += 1
 			model = model.to(DEVICE)
 			val_loader = tasks[current_task_id]['val']
 			metrics = eval_single_epoch(model, val_loader, criterion, current_task_id)
+			fisher = post_train_process(train_loader, model, optimizer, current_task_id, fisher)
 			acc_db, loss_db = log_metrics(metrics, time, current_task_id, acc_db, loss_db)
 			
 
@@ -288,6 +349,7 @@ def run_experiment(args):
 				
 				# 2.1. compute accuracy and loss
 				metrics, X, Y = final_eval(model, val_loader, criterion, current_task_id)
+				fisher = post_train_process(train_loader, model, optimizer, current_task_id, fisher)
 				matrix = confusion_matrix(X, Y)
 				#plot_conf_matrix(matrix)
 				acc_db, loss_db = log_metrics(metrics, time, current_task_id, acc_db, loss_db)
@@ -295,8 +357,6 @@ def run_experiment(args):
 				time = 0
 				trigger_times = 0
 				the_last_loss = 100
-				print(X)
-				print(Y)
 				break
 
 
@@ -315,12 +375,11 @@ def run_experiment(args):
 					
 				# 2.1. compute accuracy and loss
 				metrics, X, Y = final_eval(model, val_loader, criterion, current_task_id)
+				fisher = post_train_process(train_loader, model, optimizer, current_task_id, fisher)
 				matrix = confusion_matrix(X, Y)
 				#plot_conf_matrix(matrix)
 				acc_db, loss_db = log_metrics(metrics, time, current_task_id, acc_db, loss_db)
 				save_checkpoint_Adam(model, optimizer)
-				print(X)
-				print(Y)
 				time = 0
 				trigger_times = 0
 				the_last_loss = 100
