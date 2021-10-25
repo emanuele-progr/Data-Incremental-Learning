@@ -51,15 +51,13 @@ def train_single_epoch_ewc(net, optimizer, loader, criterion, old_params, fisher
 	:param task_id:
 	:return:
 	"""
-	lamb = 5000
 	net = net.to(DEVICE)
 	loss_penalty = 0
 
 	if task_id > 1:
 
-		
 		loss_penalty = ewc_penalty(net, fisher, old_params)
-		print(loss_penalty)
+		print('ewc penalty : {}'.format(loss_penalty))
 	
 	net.train()
 	for batch_idx, (data, target) in enumerate(loader):
@@ -71,7 +69,6 @@ def train_single_epoch_ewc(net, optimizer, loader, criterion, old_params, fisher
 		else:
 			pred = net(data)
 		loss = criterion(pred, target) + loss_penalty
-		print(loss)
 		loss.backward(retain_graph = True)
 		optimizer.step()
 	return net
@@ -101,6 +98,44 @@ def eval_single_epoch(net, loader, criterion, task_id=None):
 			else:
 				output = net(data)
 			test_loss += criterion(output, target).item()
+			pred = output.data.max(1, keepdim=True)[1]
+			correct += pred.eq(target.data.view_as(pred)).sum()
+	test_loss /= len(loader.dataset)
+	correct = correct.to('cpu')
+	avg_acc = 100.0 * float(correct.numpy()) / len(loader.dataset)
+	return {'accuracy': avg_acc, 'loss': test_loss}
+
+def eval_single_epoch_ewc(net, loader, criterion, fisher, old_params, task_id=None):
+	"""
+	Evaluate the model for single epoch
+	
+	:param net:
+	:param loader:
+	:param criterion:
+	:param task_id:
+	:return:
+	"""
+	net = net.to(DEVICE)
+	net.eval()
+	test_loss = 0
+	correct = 0
+	loss_penalty = 0
+
+	if task_id > 1:
+		loss_penalty = ewc_penalty(net, fisher, old_params)
+	else:
+		loss_penalty = torch.tensor(0.0)
+
+	with torch.no_grad():
+		for data, target in loader:
+			data = data.to(DEVICE)
+			target = target.to(DEVICE)
+			# for cifar head
+			if task_id is not None:
+				output = net(data, task_id)
+			else:
+				output = net(data)
+			test_loss += criterion(output, target).item() + loss_penalty.item()
 			pred = output.data.max(1, keepdim=True)[1]
 			correct += pred.eq(target.data.view_as(pred)).sum()
 	test_loss /= len(loader.dataset)
@@ -201,7 +236,7 @@ def plot_conf_matrix(matrix):
     plt.close()
 
 def ewc_penalty(model, fisher, older_params):
-	lamb = 5000
+	lamb = 5
 	loss = 0
 	loss_reg = 0
 	for n, p in model.named_parameters():
@@ -211,7 +246,7 @@ def ewc_penalty(model, fisher, older_params):
 
 	return loss
 
-
+'''
 
 def run(args):
 	"""
@@ -274,7 +309,7 @@ def run(args):
 
 	end_experiment(args, acc_db, loss_db, hessian_eig_db)
 
-
+'''
 
 def run_experiment(args):
 
@@ -308,11 +343,7 @@ def run_experiment(args):
 		train_loader = tasks[current_task_id]['train']
 		optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)#lr=lr[current_task_id - 1])
 		if (check == 1) :
-			model, optimizer = load_checkpoint(model, optimizer, 'check.pth')
-		
-		
-		
-		
+			model, optimizer = load_checkpoint(model, optimizer, 'check.pth')	
 		
 		for epoch in range(1, args.epochs_per_task+1):
 			# 1. train and save
@@ -320,16 +351,18 @@ def run_experiment(args):
 			prev_model = model
 			prev_opt = optimizer
 			if ewc == 1:
-				s = 'ok'
-				print(s)
 				train_single_epoch_ewc(model, optimizer, train_loader, criterion, old_params, fisher, current_task_id)
 			else:
 				train_single_epoch(model, optimizer, train_loader, criterion, current_task_id)
 			time += 1
 			model = model.to(DEVICE)
 			val_loader = tasks[current_task_id]['val']
-			metrics = eval_single_epoch(model, val_loader, criterion, current_task_id)
-			fisher = post_train_process(train_loader, model, optimizer, current_task_id, fisher)
+			if ewc == 1:
+				metrics = eval_single_epoch_ewc(model, train_loader, criterion, fisher, old_params, current_task_id)
+			else:
+				metrics = eval_single_epoch(model, train_loader, criterion, current_task_id)			
+
+
 			acc_db, loss_db = log_metrics(metrics, time, current_task_id, acc_db, loss_db)
 			
 

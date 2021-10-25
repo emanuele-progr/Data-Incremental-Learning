@@ -164,6 +164,7 @@ def compute_fisher_matrix_diag(train_loader, model, optimizer, current_task_id, 
 			output = model(data, current_task_id)
 		else:
 			output = model(data)
+		#loss = criterion(output, target)
 		loss = criterion(output, target)
 			
 		optimizer.zero_grad()
@@ -181,11 +182,10 @@ def post_train_process(train_loader, model, optimizer, current_task_id, fisher):
 
 	alpha = 0.5
 
-	if current_task_id > 1:
-		current_fisher = compute_fisher_matrix_diag(train_loader, model, optimizer, current_task_id)
+	current_fisher = compute_fisher_matrix_diag(train_loader, model, optimizer, current_task_id)
 		
-		for n in fisher.keys():
-			fisher[n] = (alpha * fisher[n] + (1 - alpha) * current_fisher[n])
+	for n in fisher.keys():
+		fisher[n] = (alpha * fisher[n] + (1 - alpha) * current_fisher[n])
 
 	return fisher
 
