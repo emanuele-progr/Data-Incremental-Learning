@@ -154,7 +154,7 @@ def compute_fisher_matrix_diag(train_loader, model, optimizer, current_task_id, 
 	fisher = {n: torch.zeros(p.shape).to(DEVICE) for n, p in model.named_parameters() if p.requires_grad}
 	n_samples_batches = (len(train_loader.dataset) // train_loader.batch_size)
 	criterion = nn.CrossEntropyLoss().to(DEVICE)
-	model.train()
+	model.eval()
 	loss = 0
 	for batch_idx, (data, target) in enumerate(train_loader):
 		data = data.to(DEVICE)
