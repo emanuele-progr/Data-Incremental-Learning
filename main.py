@@ -53,11 +53,6 @@ def train_single_epoch_ewc(net, optimizer, loader, criterion, old_params, fisher
 	"""
 	net = net.to(DEVICE)
 	loss_penalty = 0
-
-	if task_id > 1:
-
-		loss_penalty = ewc_penalty(net, fisher, old_params)
-		print('ewc penalty : {}'.format(loss_penalty))
 	
 	net.train()
 	for batch_idx, (data, target) in enumerate(loader):
@@ -68,9 +63,12 @@ def train_single_epoch_ewc(net, optimizer, loader, criterion, old_params, fisher
 			pred = net(data, task_id)
 		else:
 			pred = net(data)
+		if task_id > 1:
+			loss_penalty = ewc_penalty(net, fisher, old_params)
 		loss = criterion(pred, target) + loss_penalty
-		loss.backward(retain_graph = True)
+		loss.backward()
 		optimizer.step()
+	print('ewc penalty : {}'.format(loss_penalty))
 	return net
 
 
@@ -97,7 +95,7 @@ def eval_single_epoch(net, loader, criterion, task_id=None):
 				output = net(data, task_id)
 			else:
 				output = net(data)
-			test_loss += criterion(output, target).item()
+			test_loss += criterion(output, target).item() * loader.batch_size
 			pred = output.data.max(1, keepdim=True)[1]
 			correct += pred.eq(target.data.view_as(pred)).sum()
 	test_loss /= len(loader.dataset)
@@ -135,7 +133,7 @@ def eval_single_epoch_ewc(net, loader, criterion, fisher, old_params, task_id=No
 				output = net(data, task_id)
 			else:
 				output = net(data)
-			test_loss += criterion(output, target).item() + loss_penalty.item()
+			test_loss += (criterion(output, target).item() + loss_penalty.item()) * loader.batch_size
 			pred = output.data.max(1, keepdim=True)[1]
 			correct += pred.eq(target.data.view_as(pred)).sum()
 	test_loss /= len(loader.dataset)
@@ -169,7 +167,7 @@ def final_eval(net, loader, criterion, task_id=None):
                 output = net(data, task_id)
             else:
                 output = net(data)
-            test_loss += criterion(output, target).item()
+            test_loss += criterion(output, target).item() * loader.batch_size
             pred = output.data.max(1, keepdim=True)[1]
             Y.append(pred.view_as(target.data).cpu().numpy().tolist())
             X.append(target.data.cpu().numpy().tolist())
