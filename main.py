@@ -1,5 +1,6 @@
 import os
 import torch
+import copy
 import numpy as np
 import pandas as pd
 import seaborn as sns
@@ -118,6 +119,7 @@ def eval_single_epoch_ewc(net, loader, criterion, fisher, old_params, task_id=No
 	test_loss = 0
 	correct = 0
 	loss_penalty = 0
+	ewc_loss = 0
 
 	if task_id > 1:
 		loss_penalty = ewc_penalty(net, fisher, old_params)
@@ -134,12 +136,14 @@ def eval_single_epoch_ewc(net, loader, criterion, fisher, old_params, task_id=No
 			else:
 				output = net(data)
 			test_loss += (criterion(output, target).item() + loss_penalty.item()) * loader.batch_size
+			ewc_loss += loss_penalty.item() * loader.batch_size
 			pred = output.data.max(1, keepdim=True)[1]
 			correct += pred.eq(target.data.view_as(pred)).sum()
 	test_loss /= len(loader.dataset)
+	ewc_loss /= len(loader.dataset)
 	correct = correct.to('cpu')
 	avg_acc = 100.0 * float(correct.numpy()) / len(loader.dataset)
-	return {'accuracy': avg_acc, 'loss': test_loss}
+	return {'accuracy': avg_acc, 'loss': test_loss, 'ewcloss': ewc_loss}
 
 
 def final_eval(net, loader, criterion, task_id=None):
@@ -239,6 +243,7 @@ def ewc_penalty(model, fisher, older_params):
 	loss_reg = 0
 	for n, p in model.named_parameters():
 		if n in fisher.keys():
+
 			loss_reg += torch.sum(fisher[n] * (p - older_params[n]).pow(2))/2
 	loss += lamb * loss_reg
 
@@ -334,6 +339,9 @@ def run_experiment(args):
 
 	for current_task_id in range(1, args.tasks+1):
 		#lr = max(args.lr * args.gamma ** (current_task_id), 0.00005)
+		ewc_loss = []
+		all_loss = []
+		counter = []
 		if args.compute_joint_incremental:
 			model = get_benchmark_model(args)
 		old_params = {n: p.clone().detach() for n,p in model.named_parameters() if p.requires_grad}
@@ -346,8 +354,10 @@ def run_experiment(args):
 		for epoch in range(1, args.epochs_per_task+1):
 			# 1. train and save
 
-			prev_model = model
-			prev_opt = optimizer
+			prev_model = get_benchmark_model(args)
+			prev_model.load_state_dict(model.state_dict())
+			prev_opt = type(optimizer)(prev_model.parameters(), lr=args.lr)
+			prev_opt.load_state_dict(optimizer.state_dict())
 			if ewc == 1:
 				train_single_epoch_ewc(model, optimizer, train_loader, criterion, old_params, fisher, current_task_id)
 			else:
@@ -357,6 +367,10 @@ def run_experiment(args):
 			val_loader = tasks[current_task_id]['val']
 			if ewc == 1:
 				metrics = eval_single_epoch_ewc(model, train_loader, criterion, fisher, old_params, current_task_id)
+				if current_task_id > 1:
+					ewc_loss.append(metrics['ewcloss'])
+					all_loss.append(metrics['loss'])
+					counter.append(epoch)
 			else:
 				metrics = eval_single_epoch(model, train_loader, criterion, current_task_id)			
 
@@ -366,8 +380,10 @@ def run_experiment(args):
 
 			if loss_db[current_task_id][epoch-1] > the_last_loss:
 				if trigger_times == 0:
-					backup_model = prev_model
-					backup_opt = prev_opt
+					backup_model = get_benchmark_model(args)
+					backup_model.load_state_dict(prev_model.state_dict())
+					backup_opt = type(prev_opt)(backup_model.parameters(), lr=args.lr)
+					backup_opt.load_state_dict(prev_opt.state_dict())
 				trigger_times += 1
 				print('trigger times:', trigger_times)
 			else:
@@ -376,6 +392,8 @@ def run_experiment(args):
 				print('Early stopping!')
 				#tune.report(val_loss = loss_db[current_task_id][epoch])
 				model = backup_model.to(DEVICE)
+				optimizer = type(backup_opt)(model.parameters(), lr=args.lr)
+				optimizer.load_state_dict(backup_opt.state_dict())
 				val_loader = tasks[current_task_id]['test']
 				
 				# 2.1. compute accuracy and loss
@@ -388,8 +406,14 @@ def run_experiment(args):
 				time = 0
 				trigger_times = 0
 				the_last_loss = 100
+				if current_task_id > 1:
+					e_loss = np.array(ewc_loss)
+					a_loss = np.array(all_loss)
+					epochs = np.array(counter)
+					df = pd.DataFrame({"Item Name": epochs, "loss" : a_loss, "ewc_loss" : e_loss})
+					string = 'prova{}.csv'.format(current_task_id)
+					df.to_csv(string, sep = ';', index = False)
 				break
-
 
 			if loss_db[current_task_id][epoch-1] < the_last_loss:
 				the_last_loss = loss_db[current_task_id][epoch-1]
@@ -398,8 +422,8 @@ def run_experiment(args):
 				#tune.report(val_loss= loss_db[current_task_id][epoch])
 				if trigger_times > 0:
 					model = backup_model.to(DEVICE)
-					s = "ok"
-					print(s)
+					optimizer = type(backup_opt)(model.parameters(), lr=args.lr)
+					optimizer.load_state_dict(backup_opt.state_dict())
 				else:
 					model = model.to(DEVICE)
 				val_loader = tasks[current_task_id]['test']
@@ -414,6 +438,13 @@ def run_experiment(args):
 				time = 0
 				trigger_times = 0
 				the_last_loss = 100
+				if current_task_id > 1:
+					e_loss = np.array(ewc_loss)
+					a_loss = np.array(all_loss)
+					epochs = np.array(counter)
+					df = pd.DataFrame({"Item Name": epochs, "loss" : a_loss, "ewc_loss" : e_loss})
+					string = 'prova{}.csv'.format(current_task_id)
+					df.to_csv(string, sep = ';', index = False)
 	return
     
 def load_checkpoint(model, optimizer, filename='check.pth'):
