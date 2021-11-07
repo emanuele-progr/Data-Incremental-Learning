@@ -170,13 +170,17 @@ def compute_fisher_matrix_diag(train_loader, model, optimizer, current_task_id, 
 		optimizer.zero_grad()
 		loss.backward()
 		for n, p in model.named_parameters():
+			print(n)
 			if n == 'linear.weight' or n == 'linear.bias':
+				pass
+			elif n == 'bn1.weight' or n == 'bn1.bias':
+				pass
+			elif 'IC1' in n or 'IC2' in n:
 				pass
 			else:
 				if p.grad is not None:
 					fisher[n] += p.grad.pow(2) * len(target)
-		
-	
+					
 	n_samples = n_samples_batches * train_loader.batch_size
 	fisher = {n: (p / n_samples) for n, p in fisher.items()}
 

@@ -238,7 +238,7 @@ def plot_conf_matrix(matrix):
     plt.close()
 
 def ewc_penalty(model, fisher, older_params):
-	lamb = 5
+	lamb = 1000
 	loss = 0
 	loss_reg = 0
 	for n, p in model.named_parameters():
