@@ -170,7 +170,6 @@ def compute_fisher_matrix_diag(train_loader, model, optimizer, current_task_id, 
 		optimizer.zero_grad()
 		loss.backward()
 		for n, p in model.named_parameters():
-			print(n)
 			if n == 'linear.weight' or n == 'linear.bias':
 				pass
 			elif n == 'bn1.weight' or n == 'bn1.bias':

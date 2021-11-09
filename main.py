@@ -249,6 +249,38 @@ def ewc_penalty(model, fisher, older_params):
 
 	return loss
 
+def make_prediction_vector(X, Y):
+	pred_vector = [0] * len(X)
+	for i in range(len(X)):
+		if X[i] == Y[i]:
+			pred_vector[i] = 1
+
+	return pred_vector
+
+def count_common_pred(pred_vector1, pred_vector2):
+	count = 0
+	for i in range(len(pred_vector2)):
+		if pred_vector2[i] == 1:
+			count += pred_vector1[i]
+	
+	return count
+
+def forgetting_metric(current_pred_vector, pred_vector_list, current_task_id):
+	num = 0
+	den = 0
+	for i in reversed(range(current_task_id)):
+		if i > 0:
+			num += count_common_pred(current_pred_vector, pred_vector_list[i])
+			den += sum(pred_vector_list[i])
+	
+	if i > 0:
+		forgetting = num/den
+	else:
+		forgetting = 0
+
+	return forgetting
+		
+
 '''
 
 def run(args):
@@ -330,6 +362,7 @@ def run_experiment(args):
 	trigger_times = 0
 	check = 0
 	ewc = 1
+	pred_vector_list = [[0]]
 	#lr = [0.01, 0.001, 0.001, 0.001, 0.0001, 0.0001, 0.0001, 0.0001, 0.0001, 0.0001]
 	lr = [0.001, 0.0001, 0.0001, 0.0001, 0.0001, 0.00001, 0.00001, 0.00001, 0.00001, 0.00001]
 	#lr = [0.001, 0.0001, 0.0001, 0.00001, 0.00001]
@@ -398,6 +431,9 @@ def run_experiment(args):
 				
 				# 2.1. compute accuracy and loss
 				metrics, X, Y = final_eval(model, val_loader, criterion, current_task_id)
+				pred_vector = make_prediction_vector(X, Y)
+				print(forgetting_metric(pred_vector, pred_vector_list, current_task_id))
+				pred_vector_list.append(pred_vector)
 				fisher = post_train_process(train_loader, model, optimizer, current_task_id, fisher)
 				matrix = confusion_matrix(X, Y)
 				#plot_conf_matrix(matrix)
@@ -430,6 +466,9 @@ def run_experiment(args):
 					
 				# 2.1. compute accuracy and loss
 				metrics, X, Y = final_eval(model, val_loader, criterion, current_task_id)
+				pred_vector = make_prediction_vector(X, Y)
+				print(forgetting_metric(pred_vector, pred_vector_list, current_task_id))
+				pred_vector_list.append(pred_vector)
 				fisher = post_train_process(train_loader, model, optimizer, current_task_id, fisher)
 				matrix = confusion_matrix(X, Y)
 				#plot_conf_matrix(matrix)
