@@ -273,8 +273,8 @@ def forgetting_metric(current_pred_vector, pred_vector_list, current_task_id):
 			num += count_common_pred(current_pred_vector, pred_vector_list[i])
 			den += sum(pred_vector_list[i])
 	
-	if i > 0:
-		forgetting = num/den
+	if current_task_id > 1:
+		forgetting = float(num)/den
 	else:
 		forgetting = 0
 
@@ -368,6 +368,7 @@ def run_experiment(args):
 	#lr = [0.001, 0.0001, 0.0001, 0.00001, 0.00001]
 	
 	fisher = {n: torch.zeros(p.shape).to(DEVICE) for n, p in model.named_parameters() if p.requires_grad}
+	optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)#lr=lr[current_task_id - 1])
 
 
 	for current_task_id in range(1, args.tasks+1):
@@ -380,7 +381,6 @@ def run_experiment(args):
 		old_params = {n: p.clone().detach() for n,p in model.named_parameters() if p.requires_grad}
 		print("================== TASK {} / {} =================".format(current_task_id, args.tasks))
 		train_loader = tasks[current_task_id]['train']
-		optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)#lr=lr[current_task_id - 1])
 		if (check == 1) :
 			model, optimizer = load_checkpoint(model, optimizer, 'check.pth')	
 		
