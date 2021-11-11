@@ -10,7 +10,7 @@ import matplotlib.pyplot as plt
 import matplotlib.figure as figure
 from model import MLP, ResNet18, ResNet32
 from data_utils import get_permuted_mnist_tasks, get_rotated_mnist_tasks, get_split_cifar100_tasks2, get_split_cifar100_tasks, get_split_cifar10_tasks, get_split_cifar100_tasks_joint
-from utils import parse_arguments, DEVICE, init_experiment, end_experiment, log_metrics, save_checkpoint, post_train_process
+from utils import parse_arguments, DEVICE, init_experiment, end_experiment, log_metrics, save_checkpoint, post_train_process_ewc, post_train_process_lwf
 from sklearn.metrics import confusion_matrix
 
 
@@ -61,7 +61,7 @@ def train_single_epoch_ewc(net, optimizer, loader, criterion, old_params, fisher
 		target = target.to(DEVICE)
 		optimizer.zero_grad()
 		if task_id:
-			pred = net(data, task_id)
+			pred= net(data, task_id)
 		else:
 			pred = net(data)
 		if task_id > 1:
@@ -71,6 +71,38 @@ def train_single_epoch_ewc(net, optimizer, loader, criterion, old_params, fisher
 		optimizer.step()
 	print('ewc penalty : {}'.format(loss_penalty))
 	return net
+
+def train_single_epoch_lwf(net, optimizer, loader, criterion, old_model, task_id=None):
+	"""
+	Train the model for a single epoch
+	
+	:param net:
+	:param optimizer:
+	:param loader:
+	:param criterion:
+	:param task_id:
+	:return:
+	"""
+	net = net.to(DEVICE)
+	loss_penalty = 1
+	
+	net.train()
+	for batch_idx, (data, target) in enumerate(loader):
+		data = data.to(DEVICE)
+		target = target.to(DEVICE)
+		optimizer.zero_grad()
+		if task_id:
+			pred, feat = net(data, task_id, return_features=True)
+		else:
+			pred, feat = net(data, return_features=True)
+		if task_id > 1:
+			pred_old, feat_old = old_model(data, task_id, return_features=True) 
+			loss_penalty = lwf_penalty(feat, feat_old)
+		loss = criterion(pred, target) + loss_penalty
+		loss.backward()
+		optimizer.step()
+	print('lwf penalty : {}'.format(loss_penalty))
+	return net	
 
 
 def eval_single_epoch(net, loader, criterion, task_id=None):
@@ -249,6 +281,13 @@ def ewc_penalty(model, fisher, older_params):
 
 	return loss
 
+def lwf_penalty(feat, feat_old):
+
+	lamb = 1
+	loss = lamb * torch.mean(torch.norm(feat - feat_old, p=2, dim=1))
+
+	return loss
+
 def make_prediction_vector(X, Y):
 	pred_vector = [0] * len(X)
 	for i in range(len(X)):
@@ -361,7 +400,9 @@ def run_experiment(args):
 	patience = 30
 	trigger_times = 0
 	check = 0
-	ewc = 1
+	ewc = 0
+	lwf = 1
+	old_model = 0
 	pred_vector_list = [[0]]
 	#lr = [0.01, 0.001, 0.001, 0.001, 0.0001, 0.0001, 0.0001, 0.0001, 0.0001, 0.0001]
 	lr = [0.001, 0.0001, 0.0001, 0.0001, 0.0001, 0.00001, 0.00001, 0.00001, 0.00001, 0.00001]
@@ -393,6 +434,8 @@ def run_experiment(args):
 			prev_opt.load_state_dict(optimizer.state_dict())
 			if ewc == 1:
 				train_single_epoch_ewc(model, optimizer, train_loader, criterion, old_params, fisher, current_task_id)
+			elif lwf == 1:
+				train_single_epoch_lwf(model, optimizer, train_loader, criterion, old_model, current_task_id)
 			else:
 				train_single_epoch(model, optimizer, train_loader, criterion, current_task_id)
 			time += 1
@@ -434,7 +477,8 @@ def run_experiment(args):
 				pred_vector = make_prediction_vector(X, Y)
 				print(forgetting_metric(pred_vector, pred_vector_list, current_task_id))
 				pred_vector_list.append(pred_vector)
-				fisher = post_train_process(train_loader, model, optimizer, current_task_id, fisher)
+				fisher = post_train_process_ewc(train_loader, model, optimizer, current_task_id, fisher)
+				old_model = post_train_process_lwf(model)
 				matrix = confusion_matrix(X, Y)
 				#plot_conf_matrix(matrix)
 				acc_db, loss_db = log_metrics(metrics, time, current_task_id, acc_db, loss_db)
@@ -469,7 +513,8 @@ def run_experiment(args):
 				pred_vector = make_prediction_vector(X, Y)
 				print(forgetting_metric(pred_vector, pred_vector_list, current_task_id))
 				pred_vector_list.append(pred_vector)
-				fisher = post_train_process(train_loader, model, optimizer, current_task_id, fisher)
+				fisher = post_train_process_ewc(train_loader, model, optimizer, current_task_id, fisher)
+				old_model = post_train_process_lwf(model)
 				matrix = confusion_matrix(X, Y)
 				#plot_conf_matrix(matrix)
 				acc_db, loss_db = log_metrics(metrics, time, current_task_id, acc_db, loss_db)

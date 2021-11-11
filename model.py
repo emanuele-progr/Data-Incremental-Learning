@@ -108,6 +108,10 @@ class ResNet(nn.Module):
 		if offset2 < 100:
 			out[:, offset2:100].data.fill_(-10e10)
 		return out
+	
+	def freeze_all(self):
+		for param in self.parameters():
+			param.requires_grad = False
 
 
 def ResNet18(nclasses=100, nf=20, config={}):
@@ -141,15 +145,15 @@ class ResNet2(nn.Module):
 			self.in_planes = planes * block.expansion
 		return nn.Sequential(*layers)
 
-	def forward(self, x, task_id):
+	def forward(self, x, task_id, return_features=False):
 		bsz = x.size(0)
 		out = relu(self.bn1(self.conv1(x.view(bsz, 3, 32, 32))))
 		out = self.layer1(out)
 		out = self.layer2(out)
 		out = self.layer3(out)
 		out = avg_pool2d(out, 8, stride=1)
-		out = out.view(out.size(0), -1)
-		out = self.linear(out)
+		features = out.view(out.size(0), -1)
+		out = self.linear(features)
 		'''
 		t = task_id
 		offset1 = int((t-1) * 5)
@@ -159,4 +163,13 @@ class ResNet2(nn.Module):
 		if offset2 < 100:
 			out[:, offset2:100].data.fill_(-10e10)
 		'''
-		return out
+
+		if return_features:
+			return out, features
+		else:
+			return out
+
+	def freeze_all(self):
+		for param in self.parameters():
+			param.requires_grad = False
+

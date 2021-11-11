@@ -1,5 +1,6 @@
 import uuid
 import torch
+import copy
 import itertools
 import argparse
 import matplotlib
@@ -185,7 +186,7 @@ def compute_fisher_matrix_diag(train_loader, model, optimizer, current_task_id, 
 
 	return fisher
 
-def post_train_process(train_loader, model, optimizer, current_task_id, fisher):
+def post_train_process_ewc(train_loader, model, optimizer, current_task_id, fisher):
 
 	alpha = 0.5
 
@@ -195,6 +196,14 @@ def post_train_process(train_loader, model, optimizer, current_task_id, fisher):
 		fisher[n] = (alpha * fisher[n] + (1 - alpha) * current_fisher[n])
 
 	return fisher
+
+def post_train_process_lwf(model):
+
+	model_old = copy.deepcopy(model)
+	model_old.eval()
+	model_old.freeze_all()
+	
+	return model_old
 
 
 
