@@ -136,6 +136,45 @@ def eval_single_epoch(net, loader, criterion, task_id=None):
 	avg_acc = 100.0 * float(correct.numpy()) / len(loader.dataset)
 	return {'accuracy': avg_acc, 'loss': test_loss}
 
+def eval_single_epoch_lwf(net, loader, criterion, old_model, task_id=None):
+	"""
+	Evaluate the model for single epoch
+	
+	:param net:
+	:param loader:
+	:param criterion:
+	:param task_id:
+	:return:
+	"""
+	net = net.to(DEVICE)
+	net.eval()
+	test_loss = 0
+	loss_penalty = torch.tensor(1.0)
+	lwf_loss = 0
+	correct = 0
+	with torch.no_grad():
+		for data, target in loader:
+			data = data.to(DEVICE)
+			target = target.to(DEVICE)
+			# for cifar head
+			if task_id is not None:
+				output, feat = net(data, task_id, return_features = True)
+			else:
+				output, feat = net(data, return_features = True)
+			if task_id > 1:
+				pred_old, feat_old = old_model(data, task_id, return_features=True) 
+				loss_penalty = lwf_penalty(feat, feat_old)
+
+			test_loss += (criterion(output, target).item() + loss_penalty.item()) * loader.batch_size
+			lwf_loss += loss_penalty.item() * loader.batch_size
+			pred = output.data.max(1, keepdim=True)[1]
+			correct += pred.eq(target.data.view_as(pred)).sum()
+	test_loss /= len(loader.dataset)
+	lwf_loss /= len(loader.dataset)
+	correct = correct.to('cpu')
+	avg_acc = 100.0 * float(correct.numpy()) / len(loader.dataset)
+	return {'accuracy': avg_acc, 'loss': test_loss, 'lwf_loss': lwf_loss}
+
 def eval_single_epoch_ewc(net, loader, criterion, fisher, old_params, task_id=None):
 	"""
 	Evaluate the model for single epoch
@@ -447,6 +486,8 @@ def run_experiment(args):
 					ewc_loss.append(metrics['ewcloss'])
 					all_loss.append(metrics['loss'])
 					counter.append(epoch)
+			elif lwf == 1:
+				metrics = eval_single_epoch_lwf(model, train_loader, criterion, old_model, current_task_id)
 			else:
 				metrics = eval_single_epoch(model, train_loader, criterion, current_task_id)			
 
