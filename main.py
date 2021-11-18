@@ -9,8 +9,8 @@ import argparse
 import matplotlib.pyplot as plt
 import matplotlib.figure as figure
 from model import MLP, ResNet18, ResNet32
-from data_utils import get_permuted_mnist_tasks, get_rotated_mnist_tasks, get_split_cifar100_tasks2, get_split_cifar100_tasks, get_split_cifar10_tasks, get_split_cifar100_tasks_joint
-from utils import parse_arguments, DEVICE, init_experiment, end_experiment, log_metrics, save_checkpoint, post_train_process_ewc, post_train_process_lwf
+from data_utils import get_permuted_mnist_tasks, get_rotated_mnist_tasks, get_split_cifar100_tasks2, get_split_cifar100_tasks, get_split_cifar100_tasks_with_random_exemplar2, get_split_cifar100_tasks, get_split_cifar100_tasks_with_random_exemplar, get_split_cifar10_tasks, get_split_cifar100_tasks_joint
+from utils import parse_arguments, DEVICE, init_experiment, end_experiment, log_metrics, save_checkpoint, post_train_process_ewc, post_train_process_fd
 from sklearn.metrics import confusion_matrix
 
 
@@ -72,7 +72,7 @@ def train_single_epoch_ewc(net, optimizer, loader, criterion, old_params, fisher
 	print('ewc penalty : {}'.format(loss_penalty))
 	return net
 
-def train_single_epoch_lwf(net, optimizer, loader, criterion, old_model, task_id=None):
+def train_single_epoch_fd(net, optimizer, loader, criterion, old_model, task_id=None):
 	"""
 	Train the model for a single epoch
 	
@@ -97,7 +97,7 @@ def train_single_epoch_lwf(net, optimizer, loader, criterion, old_model, task_id
 			pred, feat = net(data, return_features=True)
 		if task_id > 1:
 			pred_old, feat_old = old_model(data, task_id, return_features=True) 
-			loss_penalty = lwf_penalty(feat, feat_old)
+			loss_penalty = feature_distillation_penalty(feat, feat_old)
 		loss = criterion(pred, target) + loss_penalty
 		loss.backward()
 		optimizer.step()
@@ -136,7 +136,7 @@ def eval_single_epoch(net, loader, criterion, task_id=None):
 	avg_acc = 100.0 * float(correct.numpy()) / len(loader.dataset)
 	return {'accuracy': avg_acc, 'loss': test_loss}
 
-def eval_single_epoch_lwf(net, loader, criterion, old_model, task_id=None):
+def eval_single_epoch_fd(net, loader, criterion, old_model, task_id=None):
 	"""
 	Evaluate the model for single epoch
 	
@@ -163,7 +163,7 @@ def eval_single_epoch_lwf(net, loader, criterion, old_model, task_id=None):
 				output, feat = net(data, return_features = True)
 			if task_id > 1:
 				pred_old, feat_old = old_model(data, task_id, return_features=True) 
-				loss_penalty = lwf_penalty(feat, feat_old)
+				loss_penalty = feature_distillation_penalty(feat, feat_old)
 
 			test_loss += (criterion(output, target).item() + loss_penalty.item()) * loader.batch_size
 			lwf_loss += loss_penalty.item() * loader.batch_size
@@ -269,7 +269,8 @@ def get_benchmark_data_loader(args):
 	elif args.dataset == 'cifar-100' or args.dataset == 'cifar100' and args.compute_joint_incremental:
 		return get_split_cifar100_tasks_joint
 	elif args.dataset == 'cifar-100' or args.dataset == 'cifar100' and args.compute_joint_incremental is False:
-		return get_split_cifar100_tasks2
+		#return get_split_cifar100_tasks2
+		return get_split_cifar100_tasks_with_random_exemplar2
 	elif args.dataset == 'cifar-10' or args.dataset == 'cifar10':
 		return get_split_cifar10_tasks
 	else:
@@ -320,7 +321,7 @@ def ewc_penalty(model, fisher, older_params):
 
 	return loss
 
-def lwf_penalty(feat, feat_old):
+def feature_distillation_penalty(feat, feat_old):
 
 	lamb = 1
 	loss = lamb * torch.mean(torch.norm(feat - feat_old, p=2, dim=1))
@@ -474,7 +475,7 @@ def run_experiment(args):
 			if ewc == 1:
 				train_single_epoch_ewc(model, optimizer, train_loader, criterion, old_params, fisher, current_task_id)
 			elif lwf == 1:
-				train_single_epoch_lwf(model, optimizer, train_loader, criterion, old_model, current_task_id)
+				train_single_epoch_fd(model, optimizer, train_loader, criterion, old_model, current_task_id)
 			else:
 				train_single_epoch(model, optimizer, train_loader, criterion, current_task_id)
 			time += 1
@@ -487,7 +488,7 @@ def run_experiment(args):
 					all_loss.append(metrics['loss'])
 					counter.append(epoch)
 			elif lwf == 1:
-				metrics = eval_single_epoch_lwf(model, train_loader, criterion, old_model, current_task_id)
+				metrics = eval_single_epoch_fd(model, train_loader, criterion, old_model, current_task_id)
 			else:
 				metrics = eval_single_epoch(model, train_loader, criterion, current_task_id)			
 
@@ -519,7 +520,7 @@ def run_experiment(args):
 				print(forgetting_metric(pred_vector, pred_vector_list, current_task_id))
 				pred_vector_list.append(pred_vector)
 				fisher = post_train_process_ewc(train_loader, model, optimizer, current_task_id, fisher)
-				old_model = post_train_process_lwf(model)
+				old_model = post_train_process_fd(model)
 				matrix = confusion_matrix(X, Y)
 				#plot_conf_matrix(matrix)
 				acc_db, loss_db = log_metrics(metrics, time, current_task_id, acc_db, loss_db)
@@ -555,7 +556,7 @@ def run_experiment(args):
 				print(forgetting_metric(pred_vector, pred_vector_list, current_task_id))
 				pred_vector_list.append(pred_vector)
 				fisher = post_train_process_ewc(train_loader, model, optimizer, current_task_id, fisher)
-				old_model = post_train_process_lwf(model)
+				old_model = post_train_process_fd(model)
 				matrix = confusion_matrix(X, Y)
 				#plot_conf_matrix(matrix)
 				acc_db, loss_db = log_metrics(metrics, time, current_task_id, acc_db, loss_db)

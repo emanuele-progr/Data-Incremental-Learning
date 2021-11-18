@@ -197,7 +197,7 @@ def post_train_process_ewc(train_loader, model, optimizer, current_task_id, fish
 
 	return fisher
 
-def post_train_process_lwf(model):
+def post_train_process_fd(model):
 
 	model_old = copy.deepcopy(model)
 	model_old.eval()
