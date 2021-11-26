@@ -4,6 +4,7 @@ import copy
 import itertools
 import argparse
 import matplotlib
+import random
 import numpy as np
 import torch.nn as nn
 import pandas as pd
@@ -204,6 +205,100 @@ def post_train_process_fd(model):
 	model_old.freeze_all()
 	
 	return model_old
+
+
+
+
+
+
+def herdingExemplarsSelector(model, loader, task_id, num_exemplars):
+
+	exemplars_per_class = num_exemplars
+
+	extracted_features = []
+	extracted_targets = []
+	with torch.no_grad():
+		model.eval()
+		for data, target in loader:
+			data = data.to(DEVICE)
+			target = target.to(DEVICE)
+			_, feat = model(data, task_id, return_features=True)
+			feat = feat / feat.norm(dim=1).view(-1, 1)
+			extracted_features.append(feat)
+			extracted_targets.extend(target)
+	extracted_features = (torch.cat(extracted_features)).cpu()
+	extracted_targets = np.array(extracted_targets)
+	result = []
+
+	for curr_cls in np.unique(extracted_targets):
+		cls_ind = np.where(extracted_targets == curr_cls)[0]
+
+		cls_feats = extracted_features[cls_ind]
+		cls_mu = cls_feats.mean(0)
+
+		selected = []
+		selected_feat = []
+		for k in range(exemplars_per_class):
+			sum_others = torch.zeros(cls_feats.shape[1])
+			for j in selected_feat:
+				sum_others += j / (k + 1)
+			dist_min = np.inf
+
+			for item in cls_ind:
+				if item not in selected:
+					feat = extracted_features[item]
+					dist = torch.norm(cls_mu - feat / (k + 1) - sum_others)
+					if dist < dist_min:
+						dist_min = dist
+						newone = item
+						newonefeat = feat
+			selected_feat.append(newonefeat)
+			selected.append(newone)
+		result.extend(selected)
+	
+	return result
+
+
+def randomExemplarsSelector(model, loader, num_exemplars):
+	exemplars_per_class = num_exemplars
+	num_cls = 100
+	result = []
+	targets = np.array([])
+	for data, target in loader:
+		arr = target.cpu().detach().numpy()
+		targets = np.concatenate([targets, arr])
+	labels = targets
+	for curr_cls in range(num_cls):
+		cls_ind = np.where(labels == curr_cls)[0]
+		result.extend(random.sample(list(cls_ind), exemplars_per_class))
+	
+	return result
+
+
+def entropyExemplarsSelector(model, loader, num_exemplars):
+
+	extracted_logits = []
+	extracted_targets = []
+	with torch.no_grad():
+		model.eval()
+		for images, targets in loader:
+			extracted_logits.append(torch.cat(model(images.to(DEVICE), dim=1)))
+			extracted_targets.extend(targets)
+		extracted_logits = (torch.cat(extracted_logits)).cpu()
+		extracted_targets = np.array(extracted_targets)
+		result = []
+
+		for curr_cls in np.unique(extracted_targets):
+			cls_ind = np.where(extracted_targets == curr_cls)[0]
+			cls_logits = extracted_logits[cls_ind]
+
+			probs = torch.softmax(cls_logits, dim=1)
+			log_probs = torch.log(probs)
+			minus_entropy = (probs * log_probs).sum(1)
+			selected = cls_ind[minus_entropy.sort()[1][:num_exemplars]]
+			result.extend(selected)
+
+		return result
 
 
 

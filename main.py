@@ -9,8 +9,8 @@ import argparse
 import matplotlib.pyplot as plt
 import matplotlib.figure as figure
 from model import MLP, ResNet18, ResNet32
-from data_utils import get_permuted_mnist_tasks, get_rotated_mnist_tasks, get_split_cifar100_tasks2, get_split_cifar100_tasks, get_split_cifar100_tasks_with_random_exemplar2, get_split_cifar100_tasks, get_split_cifar100_tasks_with_random_exemplar, get_split_cifar10_tasks, get_split_cifar100_tasks_joint
-from utils import parse_arguments, DEVICE, init_experiment, end_experiment, log_metrics, save_checkpoint, post_train_process_ewc, post_train_process_fd
+from data_utils import dataset_manipulation, get_permuted_mnist_tasks, get_rotated_mnist_tasks, get_split_cifar100_tasks2, get_split_cifar100_tasks, get_split_cifar100_tasks_with_random_exemplar2, get_split_cifar100_tasks, get_split_cifar100_tasks_with_random_exemplar, get_split_cifar10_tasks, get_split_cifar100_tasks_joint, dataset_manipulation
+from utils import parse_arguments, DEVICE, init_experiment, end_experiment, log_metrics, save_checkpoint, post_train_process_ewc, post_train_process_fd, herdingExemplarsSelector, randomExemplarsSelector
 from sklearn.metrics import confusion_matrix
 
 
@@ -101,7 +101,6 @@ def train_single_epoch_fd(net, optimizer, loader, criterion, old_model, task_id=
 		loss = criterion(pred, target) + loss_penalty
 		loss.backward()
 		optimizer.step()
-	print('lwf penalty : {}'.format(loss_penalty))
 	return net	
 
 
@@ -173,7 +172,7 @@ def eval_single_epoch_fd(net, loader, criterion, old_model, task_id=None):
 	lwf_loss /= len(loader.dataset)
 	correct = correct.to('cpu')
 	avg_acc = 100.0 * float(correct.numpy()) / len(loader.dataset)
-	return {'accuracy': avg_acc, 'loss': test_loss, 'lwf_loss': lwf_loss}
+	return {'accuracy': avg_acc, 'loss': test_loss, 'fd_loss': lwf_loss}
 
 def eval_single_epoch_ewc(net, loader, criterion, fisher, old_params, task_id=None):
 	"""
@@ -269,8 +268,8 @@ def get_benchmark_data_loader(args):
 	elif args.dataset == 'cifar-100' or args.dataset == 'cifar100' and args.compute_joint_incremental:
 		return get_split_cifar100_tasks_joint
 	elif args.dataset == 'cifar-100' or args.dataset == 'cifar100' and args.compute_joint_incremental is False:
-		#return get_split_cifar100_tasks2
-		return get_split_cifar100_tasks_with_random_exemplar2
+		return get_split_cifar100_tasks2
+		#return get_split_cifar100_tasks_with_random_exemplar2
 	elif args.dataset == 'cifar-10' or args.dataset == 'cifar10':
 		return get_split_cifar10_tasks
 	else:
@@ -444,6 +443,7 @@ def run_experiment(args):
 	lwf = 1
 	old_model = 0
 	pred_vector_list = [[0]]
+	exemplars_vector_list = []
 	#lr = [0.01, 0.001, 0.001, 0.001, 0.0001, 0.0001, 0.0001, 0.0001, 0.0001, 0.0001]
 	lr = [0.001, 0.0001, 0.0001, 0.0001, 0.0001, 0.00001, 0.00001, 0.00001, 0.00001, 0.00001]
 	#lr = [0.001, 0.0001, 0.0001, 0.00001, 0.00001]
@@ -462,6 +462,18 @@ def run_experiment(args):
 		old_params = {n: p.clone().detach() for n,p in model.named_parameters() if p.requires_grad}
 		print("================== TASK {} / {} =================".format(current_task_id, args.tasks))
 		train_loader = tasks[current_task_id]['train']
+		exemplar_loader = tasks[current_task_id]['exemplar']
+		
+		accumulator = None
+
+
+
+		if current_task_id > 1:
+			accumulator = train_loader.dataset
+			for exemplars in exemplars_vector_list:
+				accumulator += exemplars
+			train_loader = torch.utils.data.DataLoader(accumulator, batch_size=args.batch_size, shuffle=True)
+			print(len(train_loader.dataset))
 		if (check == 1) :
 			model, optimizer = load_checkpoint(model, optimizer, 'check.pth')	
 		
@@ -521,6 +533,10 @@ def run_experiment(args):
 				pred_vector_list.append(pred_vector)
 				fisher = post_train_process_ewc(train_loader, model, optimizer, current_task_id, fisher)
 				old_model = post_train_process_fd(model)
+				res = randomExemplarsSelector(model, train_loader, 20)
+				selected_exemplar = torch.utils.data.Subset(exemplar_loader.dataset, res)
+				exemplars_vector_list.append(selected_exemplar)
+				print(len(selected_exemplar))
 				matrix = confusion_matrix(X, Y)
 				#plot_conf_matrix(matrix)
 				acc_db, loss_db = log_metrics(metrics, time, current_task_id, acc_db, loss_db)
@@ -557,6 +573,9 @@ def run_experiment(args):
 				pred_vector_list.append(pred_vector)
 				fisher = post_train_process_ewc(train_loader, model, optimizer, current_task_id, fisher)
 				old_model = post_train_process_fd(model)
+				res = randomExemplarsSelector(model, exemplar_loader, 20)
+				selected_exemplar = torch.utils.data.Subset(exemplar_loader.dataset, res)
+				exemplars_vector_list.append(selected_exemplar)
 				matrix = confusion_matrix(X, Y)
 				#plot_conf_matrix(matrix)
 				acc_db, loss_db = log_metrics(metrics, time, current_task_id, acc_db, loss_db)
@@ -595,6 +614,7 @@ def save_checkpoint_Adam(model, optimizer):
     torch.save(state, PATH)
     
 if __name__ == "__main__":
+    #dataset_manipulation()
     args = parse_arguments()
     run_experiment(args)
     #analysis = tune.run(tuning, config={"lr" : tune.grid_search([0.001, 0.01, 0.0001])})
