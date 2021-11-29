@@ -186,6 +186,59 @@ def get_split_cifar100_tasks2(num_tasks, batch_size):
 		datasets[task_id] = {'train': train_loader, 'test': test_loader, 'val': val_loader, 'exemplar': exemplar_loader}
 		
 	return datasets
+
+
+def get_split_cifar100_tasks2_memory(num_tasks, batch_size):
+
+	datasets = {}
+
+	# convention: tasks starts from 1 not 0 !
+	# task_id = 1 (i.e., first task) => start_class = 0, end_class = 4
+	cifar_train_transforms = torchvision.transforms.Compose([torchvision.transforms.RandomHorizontalFlip(),torchvision.transforms.RandomCrop(32,padding=4,padding_mode="reflect"),torchvision.transforms.ToTensor(),])
+	cifar_test_transforms = torchvision.transforms.Compose([torchvision.transforms.ToTensor(),])
+	cifar_train = torchvision.datasets.CIFAR100('./data/', train=True, download=True, transform=cifar_train_transforms)
+	cifar_test = torchvision.datasets.CIFAR100('./data/', train=False, download=True, transform=cifar_test_transforms)
+
+	num_elements_train = len(cifar_train)/num_tasks
+	num_elements_test = len(cifar_test)/2
+
+
+	#test_indices, _ = train_test_split(list(range(len(cifar_test.targets))), train_size = num_elements_test, stratify = cifar_test.targets)
+	#test_dataset = torch.utils.data.Subset(cifar_test, test_indices)
+
+	test_ds, val_ds = random_split(cifar_test, [int(num_elements_test), int(num_elements_test)], generator=torch.Generator().manual_seed(42))
+
+
+	test_loader = torch.utils.data.DataLoader(test_ds, batch_size=batch_size)
+	val_loader  = torch.utils.data.DataLoader(val_ds, batch_size=batch_size)
+
+	list_item = list(range(len(cifar_train.targets)))
+
+	train = cifar_train
+	accumulator = None
+	exemplar_loader_list = []
+
+
+	
+	for task_id in range(1, num_tasks+1):
+
+		train_ds, residual = random_split(train, [int(num_elements_train), int((len(train)-num_elements_train))], generator=torch.Generator().manual_seed(42))
+		accumulator = train_ds
+		if task_id > 1:
+			for exemplars in exemplar_loader_list:
+				accumulator += exemplars
+		train_loader = torch.utils.data.DataLoader(train_ds, batch_size=batch_size, shuffle=True)
+		exemplar_loader = torch.utils.data.DataLoader(accumulator, batch_size=batch_size)
+		train = residual
+		'''
+		train_indices, cifar_train_indices = train_test_split(list_item, train_size = num_elements_train, stratify = cifar_train.targets)
+		train_dataset = torch.utils.data.Subset(cifar_train, train_indices)
+		train_loader = torch.utils.data.DataLoader(train_dataset, batch_size=batch_size)
+		list_item = list(set(list_item) - set(cifar_train_indices))
+		'''
+		datasets[task_id] = {'train': train_loader, 'test': test_loader, 'val': val_loader, 'exemplar': exemplar_loader}
+		
+	return datasets
 '''
 def dataset_manipulation():
 	datasets = {}

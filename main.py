@@ -9,8 +9,8 @@ import argparse
 import matplotlib.pyplot as plt
 import matplotlib.figure as figure
 from model import MLP, ResNet18, ResNet32
-from data_utils import dataset_manipulation, get_permuted_mnist_tasks, get_rotated_mnist_tasks, get_split_cifar100_tasks2, get_split_cifar100_tasks, get_split_cifar100_tasks_with_random_exemplar2, get_split_cifar100_tasks, get_split_cifar100_tasks_with_random_exemplar, get_split_cifar10_tasks, get_split_cifar100_tasks_joint, dataset_manipulation
-from utils import parse_arguments, DEVICE, init_experiment, end_experiment, log_metrics, save_checkpoint, post_train_process_ewc, post_train_process_fd, herdingExemplarsSelector, randomExemplarsSelector
+from data_utils import get_permuted_mnist_tasks, get_rotated_mnist_tasks,get_split_cifar100_tasks2_memory, get_split_cifar100_tasks2, get_split_cifar100_tasks, get_split_cifar100_tasks_with_random_exemplar2, get_split_cifar100_tasks, get_split_cifar100_tasks_with_random_exemplar, get_split_cifar10_tasks, get_split_cifar100_tasks_joint
+from utils import parse_arguments, DEVICE, init_experiment, end_experiment, log_metrics, save_checkpoint, post_train_process_ewc, post_train_process_fd, herdingExemplarsSelector, entropyExemplarsSelector, randomExemplarsSelector
 from sklearn.metrics import confusion_matrix
 
 
@@ -268,7 +268,7 @@ def get_benchmark_data_loader(args):
 	elif args.dataset == 'cifar-100' or args.dataset == 'cifar100' and args.compute_joint_incremental:
 		return get_split_cifar100_tasks_joint
 	elif args.dataset == 'cifar-100' or args.dataset == 'cifar100' and args.compute_joint_incremental is False:
-		return get_split_cifar100_tasks2
+		return get_split_cifar100_tasks2_memory
 		#return get_split_cifar100_tasks_with_random_exemplar2
 	elif args.dataset == 'cifar-10' or args.dataset == 'cifar10':
 		return get_split_cifar10_tasks
@@ -466,8 +466,6 @@ def run_experiment(args):
 		
 		accumulator = None
 
-
-
 		if current_task_id > 1:
 			accumulator = train_loader.dataset
 			for exemplars in exemplars_vector_list:
@@ -533,8 +531,9 @@ def run_experiment(args):
 				pred_vector_list.append(pred_vector)
 				fisher = post_train_process_ewc(train_loader, model, optimizer, current_task_id, fisher)
 				old_model = post_train_process_fd(model)
-				res = randomExemplarsSelector(model, train_loader, 20)
+				res = randomExemplarsSelector(model, exemplar_loader, 20)
 				selected_exemplar = torch.utils.data.Subset(exemplar_loader.dataset, res)
+				exemplars_vector_list = []
 				exemplars_vector_list.append(selected_exemplar)
 				print(len(selected_exemplar))
 				matrix = confusion_matrix(X, Y)
@@ -575,6 +574,7 @@ def run_experiment(args):
 				old_model = post_train_process_fd(model)
 				res = randomExemplarsSelector(model, exemplar_loader, 20)
 				selected_exemplar = torch.utils.data.Subset(exemplar_loader.dataset, res)
+				exemplars_vector_list = []
 				exemplars_vector_list.append(selected_exemplar)
 				matrix = confusion_matrix(X, Y)
 				#plot_conf_matrix(matrix)
@@ -614,7 +614,6 @@ def save_checkpoint_Adam(model, optimizer):
     torch.save(state, PATH)
     
 if __name__ == "__main__":
-    #dataset_manipulation()
     args = parse_arguments()
     run_experiment(args)
     #analysis = tune.run(tuning, config={"lr" : tune.grid_search([0.001, 0.01, 0.0001])})
