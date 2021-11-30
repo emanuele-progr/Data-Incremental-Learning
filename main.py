@@ -9,7 +9,7 @@ import argparse
 import matplotlib.pyplot as plt
 import matplotlib.figure as figure
 from model import MLP, ResNet18, ResNet32
-from data_utils import get_permuted_mnist_tasks, get_rotated_mnist_tasks,get_split_cifar100_tasks2_memory, get_split_cifar100_tasks2, get_split_cifar100_tasks, get_split_cifar100_tasks_with_random_exemplar2, get_split_cifar100_tasks, get_split_cifar100_tasks_with_random_exemplar, get_split_cifar10_tasks, get_split_cifar100_tasks_joint
+from data_utils import get_permuted_mnist_tasks, get_rotated_mnist_tasks,get_split_cifar100_tasks2_memory, get_split_cifar100_tasks2, get_split_cifar100_tasks, get_split_cifar100_tasks2_with_augment, get_split_cifar100_tasks_with_random_exemplar2, get_split_cifar100_tasks, get_split_cifar100_tasks_with_random_exemplar, get_split_cifar10_tasks, get_split_cifar100_tasks_joint
 from utils import parse_arguments, DEVICE, init_experiment, end_experiment, log_metrics, save_checkpoint, post_train_process_ewc, post_train_process_fd, herdingExemplarsSelector, entropyExemplarsSelector, randomExemplarsSelector
 from sklearn.metrics import confusion_matrix
 
@@ -268,7 +268,7 @@ def get_benchmark_data_loader(args):
 	elif args.dataset == 'cifar-100' or args.dataset == 'cifar100' and args.compute_joint_incremental:
 		return get_split_cifar100_tasks_joint
 	elif args.dataset == 'cifar-100' or args.dataset == 'cifar100' and args.compute_joint_incremental is False:
-		return get_split_cifar100_tasks2
+		return get_split_cifar100_tasks2_with_augment
 		#return get_split_cifar100_tasks_with_random_exemplar2
 	elif args.dataset == 'cifar-10' or args.dataset == 'cifar10':
 		return get_split_cifar10_tasks
@@ -462,6 +462,7 @@ def run_experiment(args):
 		old_params = {n: p.clone().detach() for n,p in model.named_parameters() if p.requires_grad}
 		print("================== TASK {} / {} =================".format(current_task_id, args.tasks))
 		train_loader = tasks[current_task_id]['train']
+		print(len(train_loader.dataset))
 		exemplar_loader = tasks[current_task_id]['exemplar']
 		
 		accumulator = None

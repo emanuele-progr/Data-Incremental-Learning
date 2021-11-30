@@ -221,7 +221,7 @@ def herdingExemplarsSelector(model, loader, task_id, num_exemplars):
 		model.eval()
 		for data, target in loader:
 			data = data.to(DEVICE)
-			target = target.to(DEVICE)
+			target = target.to('cpu')
 			_, feat = model(data, task_id, return_features=True)
 			feat = feat / feat.norm(dim=1).view(-1, 1)
 			extracted_features.append(feat)
