@@ -228,7 +228,9 @@ def get_split_cifar100_tasks2_with_augment(num_tasks, batch_size):
 		if task_id == 1:
 			aug_ds, aug_residual = random_split(train, [int(num_elements_train), int((len(train)-num_elements_train))], generator=torch.Generator().manual_seed(42))
 			aug_ds, aug_residual = random_split(aug_ds, [int(num_aug), int((len(aug_ds)-num_aug))], generator=torch.Generator().manual_seed(42))
-		train_loader = torch.utils.data.DataLoader(train_ds + aug_ds, batch_size=batch_size, shuffle=True)
+			train_loader = torch.utils.data.DataLoader(train_ds + aug_ds, batch_size=batch_size, shuffle=True)
+		else:
+			train_loader = torch.utils.data.DataLoader(train_ds, batch_size=batch_size, shuffle=True)
 		exemplar_loader = torch.utils.data.DataLoader(train_ds, batch_size=batch_size)
 		train = residual
 		'''

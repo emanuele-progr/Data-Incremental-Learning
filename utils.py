@@ -275,14 +275,14 @@ def randomExemplarsSelector(model, loader, num_exemplars):
 	return result
 
 
-def entropyExemplarsSelector(model, loader, num_exemplars):
+def entropyExemplarsSelector(model, loader, task_id,  num_exemplars):
 
 	extracted_logits = []
 	extracted_targets = []
 	with torch.no_grad():
 		model.eval()
 		for images, targets in loader:
-			extracted_logits.append(torch.cat(model(images.to(DEVICE), dim=1)))
+			extracted_logits.append(model(images.to(DEVICE), task_id))
 			extracted_targets.extend(targets)
 		extracted_logits = (torch.cat(extracted_logits)).cpu()
 		extracted_targets = np.array(extracted_targets)

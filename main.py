@@ -532,7 +532,7 @@ def run_experiment(args):
 				pred_vector_list.append(pred_vector)
 				fisher = post_train_process_ewc(train_loader, model, optimizer, current_task_id, fisher)
 				old_model = post_train_process_fd(model)
-				res = herdingExemplarsSelector(model, exemplar_loader, current_task_id, 20)
+				res = entropyExemplarsSelector(model, exemplar_loader, current_task_id, 20)
 				selected_exemplar = torch.utils.data.Subset(exemplar_loader.dataset, res)
 				#exemplars_vector_list = []
 				exemplars_vector_list.append(selected_exemplar)
@@ -573,7 +573,7 @@ def run_experiment(args):
 				pred_vector_list.append(pred_vector)
 				fisher = post_train_process_ewc(train_loader, model, optimizer, current_task_id, fisher)
 				old_model = post_train_process_fd(model)
-				res = herdingExemplarsSelector(model, exemplar_loader, current_task_id, 20)
+				res = entropyExemplarsSelector(model, exemplar_loader, current_task_id, 20)
 				selected_exemplar = torch.utils.data.Subset(exemplar_loader.dataset, res)
 				#exemplars_vector_list = []
 				exemplars_vector_list.append(selected_exemplar)
