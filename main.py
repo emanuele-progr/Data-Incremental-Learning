@@ -268,7 +268,7 @@ def get_benchmark_data_loader(args):
 	elif args.dataset == 'cifar-100' or args.dataset == 'cifar100' and args.compute_joint_incremental:
 		return get_split_cifar100_tasks_joint
 	elif args.dataset == 'cifar-100' or args.dataset == 'cifar100' and args.compute_joint_incremental is False:
-		return get_split_cifar100_tasks2_memory
+		return get_split_cifar100_tasks2
 		#return get_split_cifar100_tasks_with_random_exemplar2
 	elif args.dataset == 'cifar-10' or args.dataset == 'cifar10':
 		return get_split_cifar10_tasks
@@ -531,9 +531,9 @@ def run_experiment(args):
 				pred_vector_list.append(pred_vector)
 				fisher = post_train_process_ewc(train_loader, model, optimizer, current_task_id, fisher)
 				old_model = post_train_process_fd(model)
-				res = randomExemplarsSelector(model, exemplar_loader, 20)
+				res = herdingExemplarsSelector(model, exemplar_loader, current_task_id, 20)
 				selected_exemplar = torch.utils.data.Subset(exemplar_loader.dataset, res)
-				exemplars_vector_list = []
+				#exemplars_vector_list = []
 				exemplars_vector_list.append(selected_exemplar)
 				print(len(selected_exemplar))
 				matrix = confusion_matrix(X, Y)
@@ -572,9 +572,9 @@ def run_experiment(args):
 				pred_vector_list.append(pred_vector)
 				fisher = post_train_process_ewc(train_loader, model, optimizer, current_task_id, fisher)
 				old_model = post_train_process_fd(model)
-				res = randomExemplarsSelector(model, exemplar_loader, 20)
+				res = herdingExemplarsSelector(model, exemplar_loader, current_task_id, 20)
 				selected_exemplar = torch.utils.data.Subset(exemplar_loader.dataset, res)
-				exemplars_vector_list = []
+				#exemplars_vector_list = []
 				exemplars_vector_list.append(selected_exemplar)
 				matrix = confusion_matrix(X, Y)
 				#plot_conf_matrix(matrix)
