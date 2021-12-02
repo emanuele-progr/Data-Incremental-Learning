@@ -302,3 +302,33 @@ def entropyExemplarsSelector(model, loader, task_id,  num_exemplars):
 
 
 
+def distanceExemplarsSelector(model, loader, task_id, num_exemplars):
+
+	exemplars_per_class = num_exemplars
+
+	extracted_logits = []
+	extracted_targets = []
+	with torch.no_grad():
+		model.eval()
+		for images, targets in loader:
+			extracted_logits.append(model(images.to(DEVICE), task_id))
+			extracted_targets.extend(targets)
+
+		extracted_logits = (torch.cat(extracted_logits)).cpu()
+		extracted_targets = np.array(extracted_targets)
+		result = []
+
+		for curr_cls in np.unique(extracted_targets):
+
+			cls_ind = np.where(extracted_targets == curr_cls)[0]
+			cls_logits = extracted_logits[cls_ind]
+			distance = cls_logits[:, curr_cls]
+			selected = cls_ind[distance.sort()[1][:exemplars_per_class]]
+			result.extend(selected)
+		
+	return result
+
+
+
+
+
