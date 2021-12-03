@@ -229,6 +229,7 @@ def herdingExemplarsSelector(model, loader, task_id, num_exemplars):
 	extracted_features = (torch.cat(extracted_features)).cpu()
 	extracted_targets = np.array(extracted_targets)
 	result = []
+	final_result = []
 
 	for curr_cls in np.unique(extracted_targets):
 		cls_ind = np.where(extracted_targets == curr_cls)[0]
@@ -254,15 +255,20 @@ def herdingExemplarsSelector(model, loader, task_id, num_exemplars):
 						newonefeat = feat
 			selected_feat.append(newonefeat)
 			selected.append(newone)
-		result.extend(selected)
+		result.append(selected)
+	for i in range(exemplars_per_class):
+		for cls in np.unique(extracted_targets):
+			final_result.append(result[cls][i])
+
 	
-	return result
+	return final_result
 
 
-def randomExemplarsSelector(model, loader, num_exemplars):
+def randomExemplarsSelector(model, loader, task_id, num_exemplars):
 	exemplars_per_class = num_exemplars
 	num_cls = 100
 	result = []
+	final_result = []
 	targets = np.array([])
 	for data, target in loader:
 		arr = target.cpu().detach().numpy()
@@ -270,9 +276,13 @@ def randomExemplarsSelector(model, loader, num_exemplars):
 	labels = targets
 	for curr_cls in range(num_cls):
 		cls_ind = np.where(labels == curr_cls)[0]
-		result.extend(random.sample(list(cls_ind), exemplars_per_class))
+		result.append(random.sample(list(cls_ind), exemplars_per_class))
+	for i in range(exemplars_per_class):
+		for cls in range(num_cls):
+			final_result.append(result[cls][i])
+
 	
-	return result
+	return final_result
 
 
 def entropyExemplarsSelector(model, loader, task_id,  num_exemplars):
