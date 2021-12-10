@@ -10,7 +10,7 @@ import matplotlib.pyplot as plt
 import matplotlib.figure as figure
 from model import MLP, ResNet18, ResNet32
 from data_utils import get_permuted_mnist_tasks, get_rotated_mnist_tasks,get_split_cifar100_tasks2_memory, get_split_cifar100_tasks2, get_split_cifar100_tasks, get_split_cifar100_tasks2_with_augment, get_split_cifar100_tasks_with_random_exemplar2, get_split_cifar100_tasks, get_split_cifar100_tasks_with_random_exemplar, get_split_cifar10_tasks, get_split_cifar100_tasks_joint
-from utils import parse_arguments, DEVICE, init_experiment, end_experiment, log_metrics, save_checkpoint,distanceExemplarsSelector, post_train_process_ewc, post_train_process_fd, herdingExemplarsSelector, entropyExemplarsSelector, randomExemplarsSelector
+from utils import data_to_csv, parse_arguments, DEVICE, init_experiment, end_experiment, log_metrics, save_checkpoint,distanceExemplarsSelector, post_train_process_ewc, post_train_process_fd, herdingExemplarsSelector, entropyExemplarsSelector, randomExemplarsSelector
 from sklearn.metrics import confusion_matrix
 
 
@@ -615,6 +615,9 @@ def run_experiment(args):
 	old_model = 0
 	pred_vector_list = [[0]]
 	exemplars_vector_list = []
+	accuracy_results = []
+	forgetting_result = []
+	task_counter = []
 	#lr = [0.01, 0.001, 0.001, 0.001, 0.0001, 0.0001, 0.0001, 0.0001, 0.0001, 0.0001]
 	lr = [0.001, 0.0001, 0.0001, 0.0001, 0.0001, 0.00001, 0.00001, 0.00001, 0.00001, 0.00001]
 	#lr = [0.001, 0.0001, 0.0001, 0.00001, 0.00001]
@@ -703,6 +706,9 @@ def run_experiment(args):
 				metrics, X, Y = final_eval(model, val_loader, criterion, current_task_id)
 				pred_vector = make_prediction_vector(X, Y)
 				print(forgetting_metric(pred_vector, pred_vector_list, current_task_id))
+				accuracy_results.append(metrics['accuracy'])
+				forgetting_result.append(forgetting_metric(pred_vector, pred_vector_list, current_task_id))
+				task_counter.append(current_task_id)
 				pred_vector_list.append(pred_vector)
 				fisher = post_train_process_ewc(train_loader, model, optimizer, current_task_id, fisher)
 				old_model = post_train_process_fd(model)
@@ -742,8 +748,12 @@ def run_experiment(args):
 					
 				# 2.1. compute accuracy and loss
 				metrics, X, Y = final_eval(model, val_loader, criterion, current_task_id)
+
 				pred_vector = make_prediction_vector(X, Y)
 				print(forgetting_metric(pred_vector, pred_vector_list, current_task_id))
+				accuracy_results.append(metrics['accuracy'])
+				forgetting_result.append(forgetting_metric(pred_vector, pred_vector_list, current_task_id))
+				task_counter.append(current_task_id)
 				pred_vector_list.append(pred_vector)
 				fisher = post_train_process_ewc(train_loader, model, optimizer, current_task_id, fisher)
 				old_model = post_train_process_fd(model)
@@ -765,6 +775,8 @@ def run_experiment(args):
 					df = pd.DataFrame({"Item Name": epochs, "loss" : a_loss, "ewc_loss" : e_loss})
 					string = 'prova{}.csv'.format(current_task_id)
 					df.to_csv(string, sep = ';', index = False)
+	
+	data_to_csv(accuracy_results, forgetting_result, task_counter)
 	return
     
 def load_checkpoint(model, optimizer, filename='check.pth'):

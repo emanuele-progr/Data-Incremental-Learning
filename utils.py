@@ -80,6 +80,18 @@ def end_experiment(args, acc_db, loss_db, hessian_eig_db):
 	print('average accuracy = {}, forget = {}'.format(score, forget))
 	print()
 	print('------------------- Experiment ended -----------------')
+	
+
+def data_to_csv( acc_db, forgetting, task_counter):
+
+	acc = np.array(acc_db)
+	forg = np.array(forgetting)
+	print(task_counter)
+	task = np.array(task_counter)
+	df = pd.DataFrame({"Task": task, "accuracy": acc, "forgetting": forg })
+	df.to_csv(EXPERIMENT_DIRECTORY + '/RESULTS', sep= ';', index = False)
+
+
 
 
 def log_metrics(metrics, time, task_id, acc_db, loss_db):
