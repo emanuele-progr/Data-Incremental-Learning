@@ -11,6 +11,7 @@ import pandas as pd
 matplotlib.use('Agg')
 import seaborn as sns
 from pathlib import Path
+from torch.utils.data import DataLoader
 import matplotlib.pyplot as plt
 #from external_libs.hessian_eigenthings import compute_hessian_eigenthings
 
@@ -350,6 +351,36 @@ def distanceExemplarsSelector(model, loader, task_id, num_exemplars):
 		
 	return result
 
+
+
+
+def compute_mean_of_exemplars(model, exemplars_loader, task_id):
+
+	extracted_features = []
+	extracted_targets = []
+	exemplar_means = []
+
+	
+	with torch.no_grad():
+		model.eval()
+		for images, targets in exemplars_loader:
+			targets.to('cpu')
+			_, feats = model(images.to(DEVICE), task_id, return_features=True)
+			# normalize
+			extracted_features.append(feats / feats.norm(dim=1).view(-1, 1))
+			extracted_targets.extend(targets)
+	extracted_features = (torch.cat(extracted_features)).cpu()
+	extracted_targets = np.array(extracted_targets)
+	for curr_cls in np.unique(extracted_targets):
+		# get all indices from current class
+		cls_ind = np.where(extracted_targets == curr_cls)[0]
+		# get all extracted features for current class
+		cls_feats = extracted_features[cls_ind]
+		# add the exemplars to the set and normalize
+		cls_feats_mean = cls_feats.mean(0) / cls_feats.mean(0).norm()
+		exemplar_means.append(cls_feats_mean)
+
+	return exemplar_means
 
 
 

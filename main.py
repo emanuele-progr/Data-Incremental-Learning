@@ -10,7 +10,7 @@ import matplotlib.pyplot as plt
 import matplotlib.figure as figure
 from model import MLP, ResNet18, ResNet32
 from data_utils import get_permuted_mnist_tasks, get_rotated_mnist_tasks,get_split_cifar100_tasks2_memory, get_split_cifar100_tasks2, get_split_cifar100_tasks, get_split_cifar100_tasks2_with_augment, get_split_cifar100_tasks_with_random_exemplar2, get_split_cifar100_tasks, get_split_cifar100_tasks_with_random_exemplar, get_split_cifar10_tasks, get_split_cifar100_tasks_joint
-from utils import data_to_csv, parse_arguments, DEVICE, init_experiment, end_experiment, log_metrics, save_checkpoint,distanceExemplarsSelector, post_train_process_ewc, post_train_process_fd, herdingExemplarsSelector, entropyExemplarsSelector, randomExemplarsSelector
+from utils import data_to_csv, parse_arguments, DEVICE, init_experiment, end_experiment, log_metrics, save_checkpoint,distanceExemplarsSelector, post_train_process_ewc, post_train_process_fd, herdingExemplarsSelector, entropyExemplarsSelector, randomExemplarsSelector, compute_mean_of_exemplars
 from sklearn.metrics import confusion_matrix
 
 
@@ -103,6 +103,61 @@ def train_single_epoch_fd(net, optimizer, loader, criterion, old_model, task_id=
 		optimizer.step()
 	return net	
 
+def train_single_epoch_iCarl(net, optimizer, loader, criterion, old_model, task_id=None):
+	"""
+	Train the model for a single epoch
+	
+	:param net:
+	:param optimizer:
+	:param loader:
+	:param criterion:
+	:param task_id:
+	:return:
+	"""
+	net = net.to(DEVICE)
+	loss_penalty = 1
+	loss_penalty2 = 1
+	outputs = []
+	outputs_old = []
+	
+	net.train()
+	for batch_idx, (data, target) in enumerate(loader):
+		data = data.to(DEVICE)
+		target = target.to(DEVICE)
+		optimizer.zero_grad()
+		if task_id:
+			pred, feat = net(data, task_id, return_features=True)
+		else:
+			pred, feat = net(data, return_features=True)
+		if task_id > 1:
+			pred_old, feat_old = old_model(data, task_id, return_features=True)
+			outputs.append(pred)
+			outputs_old.append(pred_old)
+			loss_penalty = feature_distillation_penalty(feat, feat_old)
+			loss_penalty2 = icarl_penalty(outputs, outputs_old)
+			outputs = []
+			outputs_old = []
+		loss = criterion(pred, target) + loss_penalty2
+		loss.backward()
+		optimizer.step()
+	return net
+
+def classify(features, targets, exemplar_means):
+	# expand means to all batch images
+	means = torch.stack(exemplar_means)
+	means = torch.stack([means] * features.shape[0])
+	means = means.transpose(1, 2)
+	# expand all features to all classes
+	features = features / features.norm(dim=1).view(-1, 1)
+	features = features.unsqueeze(2)
+	features = features.expand_as(means)
+	# get distances for all images to all exemplar class means -- nearest prototype
+	dists = (features - means).pow(2).sum(1).squeeze()
+	# Task-Aware Multi-Head
+	# Task-Agnostic Multi-Head
+	pred = dists.argmin(1)
+	hits_tag = (pred == targets.to(DEVICE)).float()
+	return hits_tag
 
 def eval_single_epoch(net, loader, criterion, task_id=None):
 	"""
@@ -215,6 +270,64 @@ def eval_single_epoch_ewc(net, loader, criterion, fisher, old_params, task_id=No
 	avg_acc = 100.0 * float(correct.numpy()) / len(loader.dataset)
 	return {'accuracy': avg_acc, 'loss': test_loss, 'ewcloss': ewc_loss}
 
+def eval_single_epoch_iCarl(net, loader, criterion, old_model, exemplar_means, task_id):
+	"""
+	Evaluate the model for single epoch
+	
+	:param net:
+	:param loader:
+	:param criterion:
+	:param task_id:
+	:return:
+	"""
+	net = net.to(DEVICE)
+	net.eval()
+	test_loss = 0
+	loss_penalty = torch.tensor(1.0)
+	loss_penalty2 = torch.tensor(1.0)
+	hits = torch.tensor(1.0)
+	lwf_loss = 0
+	correct = 0
+	total_acc = 0
+	total_num = 0
+	outputs = []
+	outputs_old = []
+	with torch.no_grad():
+		for data, target in loader:
+			data = data.to(DEVICE)
+			target = target.to(DEVICE)
+			# for cifar head
+			output, feat = net(data, task_id, return_features = True)
+			
+			if task_id > 1:
+				hits = classify(feat, target, exemplar_means)
+				pred_old, feat_old = old_model(data, task_id, return_features=True) 
+				loss_penalty = feature_distillation_penalty(feat, feat_old)
+				outputs.append(output)
+				outputs_old.append(pred_old)
+				loss_penalty2 = icarl_penalty(outputs, outputs_old)
+				outputs = []
+				outputs_old = []
+
+			test_loss += (criterion(output, target).item() + loss_penalty2.item()) * loader.batch_size
+			lwf_loss += loss_penalty.item() * loader.batch_size
+			pred = output.data.max(1, keepdim=True)[1]
+			correct += pred.eq(target.data.view_as(pred)).sum()
+
+			total_acc += hits.sum().item()
+			total_num += len(target)
+			
+	test_loss /= len(loader.dataset)
+	lwf_loss /= len(loader.dataset)
+	correct = correct.to('cpu')
+	avg_acc = 100.0 * float(correct.numpy()) / len(loader.dataset)
+
+	acc = total_acc / total_num
+	if task_id == 1:
+		acc = avg_acc
+
+	return {'accuracy': acc, 'loss': test_loss, 'fd_loss': lwf_loss}	
+
 
 def final_eval(net, loader, criterion, task_id=None):
     """
@@ -326,6 +439,16 @@ def feature_distillation_penalty(feat, feat_old):
 	loss = lamb * torch.mean(torch.norm(feat - feat_old, p=2, dim=1))
 
 	return loss
+
+def icarl_penalty(out, out_old):
+
+	lamb = 1
+	g = torch.sigmoid(torch.cat(out))
+	q_i = torch.sigmoid(torch.cat(out_old))
+	loss = lamb * torch.nn.functional.binary_cross_entropy(g, q_i)
+
+	return loss
+
 
 def make_prediction_vector(X, Y):
 	pred_vector = [0] * len(X)
@@ -618,6 +741,7 @@ def run_experiment(args):
 	accuracy_results = []
 	forgetting_result = []
 	task_counter = []
+	exemplar_means = []
 	#lr = [0.01, 0.001, 0.001, 0.001, 0.0001, 0.0001, 0.0001, 0.0001, 0.0001, 0.0001]
 	lr = [0.001, 0.0001, 0.0001, 0.0001, 0.0001, 0.00001, 0.00001, 0.00001, 0.00001, 0.00001]
 	#lr = [0.001, 0.0001, 0.0001, 0.00001, 0.00001]
@@ -640,16 +764,24 @@ def run_experiment(args):
 		exemplars_per_class = 20
 		
 		
-		accumulator = None
+		
+		counter = 0
 
 		if current_task_id > 1:
 			accumulator = train_loader.dataset
 			for exemplars in exemplars_vector_list:
+
 				num = int((exemplars_per_class * 100)/(current_task_id - 1))
 				selected_exemplar = torch.utils.data.Subset(exemplar_loader.dataset, exemplars[:num])
 				accumulator += selected_exemplar
+				if counter == 0:
+					exemplar_dataset = selected_exemplar
+				else:
+					exemplar_dataset += selected_exemplar
+				counter += 1 
 			train_loader = torch.utils.data.DataLoader(accumulator, batch_size=args.batch_size, shuffle=True)
 			print(len(train_loader.dataset))
+			exemplar_means = compute_mean_of_exemplars(model,torch.utils.data.DataLoader(exemplar_dataset, batch_size=args.batch_size) , current_task_id)
 		if (check == 1) :
 			model, optimizer = load_checkpoint(model, optimizer, 'check.pth')	
 		exemplar_loader = tasks[current_task_id]['exemplar']
@@ -663,7 +795,8 @@ def run_experiment(args):
 			if ewc == 1:
 				train_single_epoch_ewc(model, optimizer, train_loader, criterion, old_params, fisher, current_task_id)
 			elif lwf == 1:
-				train_single_epoch_fd(model, optimizer, train_loader, criterion, old_model, current_task_id)
+				#train_single_epoch_fd(model, optimizer, train_loader, criterion, old_model, current_task_id)
+				train_single_epoch_iCarl(model, optimizer, train_loader, criterion, old_model, current_task_id)
 			else:
 				train_single_epoch(model, optimizer, train_loader, criterion, current_task_id)
 			time += 1
@@ -676,7 +809,8 @@ def run_experiment(args):
 					all_loss.append(metrics['loss'])
 					counter.append(epoch)
 			elif lwf == 1:
-				metrics = eval_single_epoch_fd(model, train_loader, criterion, old_model, current_task_id)
+				#metrics = eval_single_epoch_fd(model, train_loader, criterion, old_model, current_task_id)
+				metrics = eval_single_epoch_iCarl(model, train_loader, criterion, old_model, exemplar_means, current_task_id)
 			else:
 				metrics = eval_single_epoch(model, train_loader, criterion, current_task_id)			
 
@@ -768,6 +902,7 @@ def run_experiment(args):
 				time = 0
 				trigger_times = 0
 				the_last_loss = 100
+				compute_mean_of_exemplars(model, train_loader, current_task_id)
 				if current_task_id > 1:
 					e_loss = np.array(ewc_loss)
 					a_loss = np.array(all_loss)
