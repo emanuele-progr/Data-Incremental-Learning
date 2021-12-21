@@ -151,13 +151,15 @@ def classify(features, targets, exemplar_means):
 	features = features / features.norm(dim=1).view(-1, 1)
 	features = features.unsqueeze(2)
 	features = features.expand_as(means)
+	features = features.to('cpu')
+	means = means.to('cpu')
 	# get distances for all images to all exemplar class means -- nearest prototype
 	dists = (features - means).pow(2).sum(1).squeeze()
 	# Task-Aware Multi-Head
 	# Task-Agnostic Multi-Head
 	pred = dists.argmin(1)
-	hits_tag = (pred == targets.to(DEVICE)).float()
-	return hits_tag
+	hits_tag = (pred.to(DEVICE) == targets.to(DEVICE)).float()
+	return pred.to('cpu'), hits_tag
 
 def eval_single_epoch(net, loader, criterion, task_id=None):
 	"""
@@ -287,6 +289,7 @@ def eval_single_epoch_iCarl(net, loader, criterion, old_model, exemplar_means, t
 	loss_penalty2 = torch.tensor(1.0)
 	hits = torch.tensor(1.0)
 	lwf_loss = 0
+	icarl_loss = 0
 	correct = 0
 	total_acc = 0
 	total_num = 0
@@ -300,7 +303,7 @@ def eval_single_epoch_iCarl(net, loader, criterion, old_model, exemplar_means, t
 			output, feat = net(data, task_id, return_features = True)
 			
 			if task_id > 1:
-				hits = classify(feat, target, exemplar_means)
+				_, hits = classify(feat, target, exemplar_means)
 				pred_old, feat_old = old_model(data, task_id, return_features=True) 
 				loss_penalty = feature_distillation_penalty(feat, feat_old)
 				outputs.append(output)
@@ -311,6 +314,7 @@ def eval_single_epoch_iCarl(net, loader, criterion, old_model, exemplar_means, t
 
 			test_loss += (criterion(output, target).item() + loss_penalty2.item()) * loader.batch_size
 			lwf_loss += loss_penalty.item() * loader.batch_size
+			icarl_loss += loss_penalty.item() * loader.batch_size
 			pred = output.data.max(1, keepdim=True)[1]
 			correct += pred.eq(target.data.view_as(pred)).sum()
 
@@ -319,14 +323,16 @@ def eval_single_epoch_iCarl(net, loader, criterion, old_model, exemplar_means, t
 			
 	test_loss /= len(loader.dataset)
 	lwf_loss /= len(loader.dataset)
+	icarl_loss /= len(loader.dataset)
+
 	correct = correct.to('cpu')
 	avg_acc = 100.0 * float(correct.numpy()) / len(loader.dataset)
 
-	acc = total_acc / total_num
+	acc = round((total_acc / total_num) * 100, 2)
 	if task_id == 1:
 		acc = avg_acc
 
-	return {'accuracy': acc, 'loss': test_loss, 'fd_loss': lwf_loss}	
+	return {'accuracy': acc, 'loss': test_loss, 'icarl_loss': icarl_loss}	
 
 
 def final_eval(net, loader, criterion, task_id=None):
@@ -362,6 +368,49 @@ def final_eval(net, loader, criterion, task_id=None):
     test_loss /= len(loader.dataset)
     correct = correct.to('cpu')
     avg_acc = 100.0 * float(correct.numpy()) / len(loader.dataset)
+    X = sum(X, [])
+    Y = sum(Y, [])
+    return {'accuracy': avg_acc, 'loss': test_loss}, X, Y
+
+def final_eval_iCarl(net, loader, criterion, exemplar_means, task_id=None):
+    """
+    Evaluate the model for single epoch
+    
+    :param net:
+    :param loader:
+    :param criterion:
+    :param task_id:
+    :return:
+    """
+    X = []
+    Y = []
+    net = net.to(DEVICE)
+    net.eval()
+    test_loss = 0
+    correct = 0
+    total_acc = 0
+    total_num = 0
+    with torch.no_grad():
+        for data, target in loader:
+            data = data.to(DEVICE)
+            target = target.to(DEVICE)
+            # for cifar head
+            if task_id is not None:
+                output, feat = net(data, task_id, return_features = True)
+            else:
+                output = net(data)
+            pred_icarl, hits = classify(feat, target, exemplar_means)
+            total_acc += hits.sum().item()
+            total_num += len(target)
+            test_loss += criterion(output, target).item()
+            pred = output.data.max(1, keepdim=True)[1]
+            Y.append(pred_icarl.view_as(target.data).cpu().numpy().tolist())
+            X.append(target.data.cpu().numpy().tolist())
+            correct += pred.eq(target.data.view_as(pred)).sum()
+    test_loss /= len(loader.dataset)
+    correct = correct.to('cpu')
+    avg_acc = 100.0 * float(correct.numpy()) / len(loader.dataset)
+    avg_acc = round((total_acc/total_num) * 100, 2)
     X = sum(X, [])
     Y = sum(Y, [])
     return {'accuracy': avg_acc, 'loss': test_loss}, X, Y
@@ -895,6 +944,214 @@ def run_experiment(args):
 				#selected_exemplar = torch.utils.data.Subset(exemplar_loader.dataset, res)
 				#exemplars_vector_list = []
 				exemplars_vector_list.append(res)
+				matrix = confusion_matrix(X, Y)
+				#plot_conf_matrix(matrix)
+				acc_db, loss_db = log_metrics(metrics, time, current_task_id, acc_db, loss_db)
+				save_checkpoint_Adam(model, optimizer)
+				time = 0
+				trigger_times = 0
+				the_last_loss = 100
+				compute_mean_of_exemplars(model, train_loader, current_task_id)
+				if current_task_id > 1:
+					e_loss = np.array(ewc_loss)
+					a_loss = np.array(all_loss)
+					epochs = np.array(counter)
+					df = pd.DataFrame({"Item Name": epochs, "loss" : a_loss, "ewc_loss" : e_loss})
+					string = 'prova{}.csv'.format(current_task_id)
+					df.to_csv(string, sep = ';', index = False)
+	
+	data_to_csv(accuracy_results, forgetting_result, task_counter)
+	return
+
+def run_experiment_iCarl(args):
+
+
+	tasks = get_benchmark_data_loader(args)(args.tasks, args.batch_size)
+	model = get_benchmark_model(args)
+	acc_db, loss_db, hessian_eig_db = init_experiment(args)
+
+
+	# criterion
+	criterion = nn.CrossEntropyLoss().to(DEVICE)
+	time = 0
+	the_last_loss = 100
+	patience = 30
+	trigger_times = 0
+	check = 0
+	ewc = 0
+	lwf = 1
+	old_model = 0
+	pred_vector_list = [[0]]
+	exemplars_vector_list = []
+	accuracy_results = []
+	forgetting_result = []
+	task_counter = []
+	exemplar_means = []
+	#lr = [0.01, 0.001, 0.001, 0.001, 0.0001, 0.0001, 0.0001, 0.0001, 0.0001, 0.0001]
+	lr = [0.001, 0.0001, 0.0001, 0.0001, 0.0001, 0.00001, 0.00001, 0.00001, 0.00001, 0.00001]
+	#lr = [0.001, 0.0001, 0.0001, 0.00001, 0.00001]
+	
+	fisher = {n: torch.zeros(p.shape).to(DEVICE) for n, p in model.named_parameters() if p.requires_grad}
+	optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)#lr=lr[current_task_id - 1])
+
+
+	for current_task_id in range(1, args.tasks+1):
+		#lr = max(args.lr * args.gamma ** (current_task_id), 0.00005)
+		ewc_loss = []
+		all_loss = []
+		counter = []
+		if args.compute_joint_incremental:
+			model = get_benchmark_model(args)
+		old_params = {n: p.clone().detach() for n,p in model.named_parameters() if p.requires_grad}
+		print("================== TASK {} / {} =================".format(current_task_id, args.tasks))
+		train_loader = tasks[current_task_id]['train']
+		print(len(train_loader.dataset))
+		exemplars_per_class = 20
+		
+		
+		
+		counter2 = 0
+
+		if current_task_id > 1:
+			accumulator = train_loader.dataset
+			for exemplars in exemplars_vector_list:
+
+				num = int((exemplars_per_class * 100)/(current_task_id - 1))
+				selected_exemplar = torch.utils.data.Subset(exemplar_loader.dataset, exemplars[:num])
+				accumulator += selected_exemplar
+				if counter2 == 0:
+					exemplar_dataset = selected_exemplar
+				else:
+					exemplar_dataset += selected_exemplar
+				counter2 += 1 
+			train_loader = torch.utils.data.DataLoader(accumulator, batch_size=args.batch_size, shuffle=True)
+			print(len(train_loader.dataset))
+			#exemplar_means = compute_mean_of_exemplars(model,torch.utils.data.DataLoader(exemplar_dataset, batch_size=args.batch_size) , current_task_id)
+		if (check == 1) :
+			model, optimizer = load_checkpoint(model, optimizer, 'check.pth')	
+		exemplar_loader = tasks[current_task_id]['exemplar']
+		for epoch in range(1, args.epochs_per_task+1):
+			# 1. train and save
+
+			prev_model = get_benchmark_model(args)
+			prev_model.load_state_dict(model.state_dict())
+			prev_opt = type(optimizer)(prev_model.parameters(), lr=args.lr)
+			prev_opt.load_state_dict(optimizer.state_dict())
+			if ewc == 1:
+				train_single_epoch_ewc(model, optimizer, train_loader, criterion, old_params, fisher, current_task_id)
+			elif lwf == 1:
+				#train_single_epoch_fd(model, optimizer, train_loader, criterion, old_model, current_task_id)
+				train_single_epoch_iCarl(model, optimizer, train_loader, criterion, old_model, current_task_id)
+			else:
+				train_single_epoch(model, optimizer, train_loader, criterion, current_task_id)
+			time += 1
+			model = model.to(DEVICE)
+			val_loader = tasks[current_task_id]['val']
+			if ewc == 1:
+				metrics = eval_single_epoch_ewc(model, train_loader, criterion, fisher, old_params, current_task_id)
+				if current_task_id > 1:
+					ewc_loss.append(metrics['ewcloss'])
+					all_loss.append(metrics['loss'])
+					counter.append(epoch)
+			elif lwf == 1:
+				#metrics = eval_single_epoch_fd(model, train_loader, criterion, old_model, current_task_id)
+				metrics = eval_single_epoch_iCarl(model, train_loader, criterion, old_model, exemplar_means, current_task_id)
+			else:
+				metrics = eval_single_epoch(model, train_loader, criterion, current_task_id)			
+
+
+			acc_db, loss_db = log_metrics(metrics, time, current_task_id, acc_db, loss_db)
+			
+
+			if loss_db[current_task_id][epoch-1] > the_last_loss:
+				if trigger_times == 0:
+					backup_model = get_benchmark_model(args)
+					backup_model.load_state_dict(prev_model.state_dict())
+					backup_opt = type(prev_opt)(backup_model.parameters(), lr=args.lr)
+					backup_opt.load_state_dict(prev_opt.state_dict())
+				trigger_times += 1
+				print('trigger times:', trigger_times)
+			else:
+				trigger_times = 0
+			if trigger_times >= patience:
+				print('Early stopping!')
+				#tune.report(val_loss = loss_db[current_task_id][epoch])
+				model = backup_model.to(DEVICE)
+				optimizer = type(backup_opt)(model.parameters(), lr=args.lr)
+				optimizer.load_state_dict(backup_opt.state_dict())
+				val_loader = tasks[current_task_id]['test']
+				
+				# 2.1. compute accuracy and loss
+				metrics, X, Y = final_eval(model, val_loader, criterion, current_task_id)
+				pred_vector = make_prediction_vector(X, Y)
+				print(forgetting_metric(pred_vector, pred_vector_list, current_task_id))
+				accuracy_results.append(metrics['accuracy'])
+				forgetting_result.append(forgetting_metric(pred_vector, pred_vector_list, current_task_id))
+				task_counter.append(current_task_id)
+				pred_vector_list.append(pred_vector)
+				fisher = post_train_process_ewc(train_loader, model, optimizer, current_task_id, fisher)
+				old_model = post_train_process_fd(model)
+				res = randomExemplarsSelector(model, exemplar_loader, current_task_id, exemplars_per_class)
+				#selected_exemplar = torch.utils.data.Subset(exemplar_loader.dataset, res)
+				#exemplars_vector_list = []
+				exemplars_vector_list.append(res)
+				print(len(selected_exemplar))
+				matrix = confusion_matrix(X, Y)
+				#plot_conf_matrix(matrix)
+				acc_db, loss_db = log_metrics(metrics, time, current_task_id, acc_db, loss_db)
+				save_checkpoint_Adam(backup_model, backup_opt)
+				time = 0
+				trigger_times = 0
+				the_last_loss = 100
+				if current_task_id > 1:
+					e_loss = np.array(ewc_loss)
+					a_loss = np.array(all_loss)
+					epochs = np.array(counter)
+					df = pd.DataFrame({"Item Name": epochs, "loss" : a_loss, "ewc_loss" : e_loss})
+					string = 'prova{}.csv'.format(current_task_id)
+					df.to_csv(string, sep = ';', index = False)
+				break
+
+			if loss_db[current_task_id][epoch-1] < the_last_loss:
+				the_last_loss = loss_db[current_task_id][epoch-1]
+				
+			if epoch == args.epochs_per_task:
+				#tune.report(val_loss= loss_db[current_task_id][epoch])
+				if trigger_times > 0:
+					model = backup_model.to(DEVICE)
+					optimizer = type(backup_opt)(model.parameters(), lr=args.lr)
+					optimizer.load_state_dict(backup_opt.state_dict())
+				else:
+					model = model.to(DEVICE)
+				val_loader = tasks[current_task_id]['test']
+
+				res = herdingExemplarsSelector(model, exemplar_loader, current_task_id, exemplars_per_class)
+				exemplars_vector_list.append(res)
+				counter3 = 0
+				for exemplars in exemplars_vector_list:
+					num = int((exemplars_per_class * 100)/(current_task_id))
+					selected_exemplar = torch.utils.data.Subset(exemplar_loader.dataset, exemplars[:num])
+					if counter3 == 0:
+						exemplar_dataset = selected_exemplar
+					else:
+						exemplar_dataset += selected_exemplar
+					counter3 += 1
+				exemplar_means = compute_mean_of_exemplars(model, train_loader, current_task_id)	
+				# 2.1. compute accuracy and loss
+				metrics, X, Y = final_eval_iCarl(model, val_loader, criterion, exemplar_means, current_task_id)
+
+				pred_vector = make_prediction_vector(X, Y)
+				print(forgetting_metric(pred_vector, pred_vector_list, current_task_id))
+				accuracy_results.append(metrics['accuracy'])
+				forgetting_result.append(forgetting_metric(pred_vector, pred_vector_list, current_task_id))
+				task_counter.append(current_task_id)
+				pred_vector_list.append(pred_vector)
+				fisher = post_train_process_ewc(train_loader, model, optimizer, current_task_id, fisher)
+				old_model = post_train_process_fd(model)
+				#res = randomExemplarsSelector(model, exemplar_loader, current_task_id, exemplars_per_class)
+				#selected_exemplar = torch.utils.data.Subset(exemplar_loader.dataset, res)
+				#exemplars_vector_list = []
+				#exemplars_vector_list.append(res)
 				matrix = confusion_matrix(X, Y)
 				#plot_conf_matrix(matrix)
 				acc_db, loss_db = log_metrics(metrics, time, current_task_id, acc_db, loss_db)
