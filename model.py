@@ -1,6 +1,8 @@
 import torch
 import torch.nn as nn
 from torch.nn.functional import relu, avg_pool2d
+from torch.nn.modules import padding
+from torchvision.models import resnet18
 
 
 class MLP(nn.Module):
@@ -14,18 +16,27 @@ class MLP(nn.Module):
 		self.dropout_1 = nn.Dropout(p=config['dropout'])
 		self.W2 = nn.Linear(hiddens, hiddens)
 		self.dropout_2 = nn.Dropout(p=config['dropout'])
+		
 		self.W3 = nn.Linear(hiddens, 10)
 
-	def forward(self, x, task_id=None):
+	def forward(self, x, task_id=None, return_features = False):
 		x = x.view(-1, 784)
 		out = self.W1(x)
 		out = self.relu(out)
 		out = self.dropout_1(out)
 		out = self.W2(out)
 		out = self.relu(out)
-		out = self.dropout_2(out)
-		out = self.W3(out)
-		return out
+		feat = self.dropout_2(out)
+
+		out = self.W3(feat)
+		if return_features:
+			return out, feat
+		else:
+			return out
+
+	def freeze_all(self):
+		for param in self.parameters():
+			param.requires_grad = False
 
 
 def conv3x3(in_planes, out_planes, stride=1):
@@ -90,7 +101,7 @@ class ResNet(nn.Module):
 			self.in_planes = planes * block.expansion
 		return nn.Sequential(*layers)
 
-	def forward(self, x, task_id):
+	def forward(self, x, task_id, return_features = False):
 		bsz = x.size(0)
 		out = relu(self.bn1(self.conv1(x.view(bsz, 3, 32, 32))))
 		out = self.layer1(out)
@@ -98,31 +109,18 @@ class ResNet(nn.Module):
 		out = self.layer3(out)
 		out = self.layer4(out)
 		out = avg_pool2d(out, 4)
-		out = out.view(out.size(0), -1)
-		out = self.linear(out)
-		t = task_id
-		offset1 = int((t-1) * 5)
-		offset2 = int(t * 5)
-		if offset1 > 0:
-			out[:, :offset1].data.fill_(-10e10)
-		if offset2 < 100:
-			out[:, offset2:100].data.fill_(-10e10)
-		return out
+		features = out.view(out.size(0), -1)
+		out = self.linear(features)
+
+		if return_features:
+			return out, features
+		else:
+			return out		
+
 	
 	def freeze_all(self):
 		for param in self.parameters():
 			param.requires_grad = False
-
-
-def ResNet18(nclasses=100, nf=20, config={}):
-	net = ResNet(BasicBlock, [2, 2, 2, 2], nclasses, nf, config=config)
-	return net
-
-
-def ResNet32(nclasses=100, nf=16, config={}):
-	net = ResNet2(BasicBlock, [5, 5, 5], nclasses, nf, config=config)
-	return net
-
 
 
 class ResNet2(nn.Module):
@@ -154,15 +152,6 @@ class ResNet2(nn.Module):
 		out = avg_pool2d(out, 8, stride=1)
 		features = out.view(out.size(0), -1)
 		out = self.linear(features)
-		'''
-		t = task_id
-		offset1 = int((t-1) * 5)
-		offset2 = int(t * 5)
-		if offset1 > 0:
-			out[:, :offset1].data.fill_(-10e10)
-		if offset2 < 100:
-			out[:, offset2:100].data.fill_(-10e10)
-		'''
 
 		if return_features:
 			return out, features
@@ -173,3 +162,14 @@ class ResNet2(nn.Module):
 		for param in self.parameters():
 			param.requires_grad = False
 
+def ResNet18(nclasses=100, nf=20, config={}):
+	net = ResNet(BasicBlock, [2, 2, 2, 2], nclasses, nf, config=config)
+	return net
+
+def ResNet32(nclasses=100, nf=16, config={}):
+    net = ResNet2(BasicBlock, [5, 5, 5], nclasses, nf, config=config)
+    return net
+
+def ResNet110(nclasses=100, nf=16, config={}):
+	net = ResNet2(BasicBlock, [18, 18, 18], nclasses, nf, config=config)
+	return net
