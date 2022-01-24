@@ -14,6 +14,7 @@ import matplotlib.pyplot as plt
 from torch.utils.data import TensorDataset, Dataset, DataLoader
 from torchvision import models, utils, datasets, transforms
 from PIL import Image
+from utils import get_seed
 
 
 DATA_DIR = 'tiny-imagenet-200'  # Original images come in shapes of [3,64,64]
@@ -167,7 +168,7 @@ def get_split_cifar100_tasks(num_tasks, batch_size):
 
 
     test_ds, val_ds = random_split(cifar_test, [int(num_elements_test), int(
-       num_elements_test)], generator=torch.Generator().manual_seed(42))
+       num_elements_test)], generator=torch.Generator().manual_seed(get_seed()))
 
     test_loader = torch.utils.data.DataLoader(test_ds, batch_size=batch_size)
     val_loader = torch.utils.data.DataLoader(val_ds, batch_size=batch_size)
@@ -177,7 +178,7 @@ def get_split_cifar100_tasks(num_tasks, batch_size):
     for task_id in range(1, num_tasks+1):
 
         train_ds, residual = random_split(train, [int(num_elements_train), int(
-           (len(train)-num_elements_train))], generator=torch.Generator().manual_seed(42))
+           (len(train)-num_elements_train))], generator=torch.Generator().manual_seed(get_seed()))
         train_loader = torch.utils.data.DataLoader(
            train_ds, batch_size=batch_size, shuffle=True)
         exemplar_loader = torch.utils.data.DataLoader(
@@ -208,7 +209,7 @@ def get_split_cifar10_tasks(num_tasks, batch_size):
     num_elements_test = len(cifar_test)/2
 
     test_ds, val_ds = random_split(cifar_test, [int(num_elements_test), int(
-       num_elements_test)], generator=torch.Generator().manual_seed(42))
+       num_elements_test)], generator=torch.Generator().manual_seed(get_seed()))
 
     test_loader = torch.utils.data.DataLoader(test_ds, batch_size=batch_size)
     val_loader = torch.utils.data.DataLoader(val_ds, batch_size=batch_size)
@@ -218,7 +219,7 @@ def get_split_cifar10_tasks(num_tasks, batch_size):
     for task_id in range(1, num_tasks+1):
 
         train_ds, residual = random_split(train, [int(num_elements_train), int(
-           (len(train)-num_elements_train))], generator=torch.Generator().manual_seed(42))
+           (len(train)-num_elements_train))], generator=torch.Generator().manual_seed(get_seed()))
         train_loader = torch.utils.data.DataLoader(
            train_ds, batch_size=batch_size, shuffle=True)
         exemplar_loader = torch.utils.data.DataLoader(
@@ -250,7 +251,7 @@ def get_split_MNIST_tasks(num_tasks, batch_size):
     num_elements_test = len(mnist_test)/2
 
     test_ds, val_ds = random_split(mnist_test, [int(num_elements_test), int(
-       num_elements_test)], generator=torch.Generator().manual_seed(42))
+       num_elements_test)], generator=torch.Generator().manual_seed(get_seed()))
 
     test_loader = torch.utils.data.DataLoader(test_ds, batch_size=batch_size)
     val_loader = torch.utils.data.DataLoader(val_ds, batch_size=batch_size)
@@ -262,7 +263,7 @@ def get_split_MNIST_tasks(num_tasks, batch_size):
     for task_id in range(1, num_tasks+1):
 
         train_ds, residual = random_split(train, [int(num_elements_train), int(
-           (len(train)-num_elements_train))], generator=torch.Generator().manual_seed(42))
+           (len(train)-num_elements_train))], generator=torch.Generator().manual_seed(get_seed()))
         train_loader = torch.utils.data.DataLoader(
            train_ds, batch_size=batch_size, shuffle=True)
         exemplar_loader = torch.utils.data.DataLoader(
@@ -301,7 +302,7 @@ def get_split_cifar100_tasks_with_augment(num_tasks, batch_size):
     #test_dataset = torch.utils.data.Subset(cifar_test, test_indices)
 
     test_ds, val_ds = random_split(cifar_test, [int(num_elements_test), int(
-       num_elements_test)], generator=torch.Generator().manual_seed(42))
+       num_elements_test)], generator=torch.Generator().manual_seed(get_seed()))
 
     test_loader = torch.utils.data.DataLoader(test_ds, batch_size=batch_size)
     val_loader = torch.utils.data.DataLoader(val_ds, batch_size=batch_size)
@@ -313,12 +314,12 @@ def get_split_cifar100_tasks_with_augment(num_tasks, batch_size):
     for task_id in range(1, num_tasks+1):
 
         train_ds, residual = random_split(train, [int(num_elements_train), int(
-           (len(train)-num_elements_train))], generator=torch.Generator().manual_seed(42))
+           (len(train)-num_elements_train))], generator=torch.Generator().manual_seed(get_seed()))
         if task_id == 1:
             aug_ds, aug_residual = random_split(train, [int(num_elements_train), int(
-               (len(train)-num_elements_train))], generator=torch.Generator().manual_seed(42))
+               (len(train)-num_elements_train))], generator=torch.Generator().manual_seed(get_seed()))
             aug_ds, aug_residual = random_split(aug_ds, [int(num_aug), int(
-               (len(aug_ds)-num_aug))], generator=torch.Generator().manual_seed(42))
+               (len(aug_ds)-num_aug))], generator=torch.Generator().manual_seed(get_seed()))
             train_loader = torch.utils.data.DataLoader(
                train_ds + aug_ds, batch_size=batch_size, shuffle=True)
         else:
@@ -352,7 +353,7 @@ def get_split_cifar100_tasks_with_exemplars_linear_memory(num_tasks, batch_size)
     num_elements_test = len(cifar_test)/2
 
     test_ds, val_ds = random_split(cifar_test, [int(num_elements_test), int(
-       num_elements_test)], generator=torch.Generator().manual_seed(42))
+       num_elements_test)], generator=torch.Generator().manual_seed(get_seed()))
 
     test_loader = torch.utils.data.DataLoader(test_ds, batch_size=batch_size)
     val_loader = torch.utils.data.DataLoader(val_ds, batch_size=batch_size)
@@ -364,7 +365,7 @@ def get_split_cifar100_tasks_with_exemplars_linear_memory(num_tasks, batch_size)
     for task_id in range(1, num_tasks+1):
 
         train_ds, residual = random_split(train, [int(num_elements_train), int(
-           (len(train)-num_elements_train))], generator=torch.Generator().manual_seed(42))
+           (len(train)-num_elements_train))], generator=torch.Generator().manual_seed(get_seed()))
         accumulator = train_ds
         if task_id > 1:
             for exemplars in exemplar_loader_list:
@@ -426,7 +427,7 @@ def get_split_tiny_ImageNet_tasks(num_tasks, batch_size):
     #test_dataset = torch.utils.data.Subset(cifar_test, test_indices)
 
     test_ds, val_ds = random_split(imageNet_test, [int(num_elements_test), int(
-       num_elements_test)], generator=torch.Generator().manual_seed(42))
+       num_elements_test)], generator=torch.Generator().manual_seed(get_seed()))
 
     test_loader = torch.utils.data.DataLoader(test_ds, batch_size=batch_size)
     val_loader = torch.utils.data.DataLoader(val_ds, batch_size=batch_size)
@@ -438,7 +439,7 @@ def get_split_tiny_ImageNet_tasks(num_tasks, batch_size):
     for task_id in range(1, num_tasks+1):
 
         train_ds, residual = random_split(train, [int(num_elements_train), int(
-           (len(train)-num_elements_train))], generator=torch.Generator().manual_seed(42))
+           (len(train)-num_elements_train))], generator=torch.Generator().manual_seed(get_seed()))
         train_loader = torch.utils.data.DataLoader(
            train_ds, batch_size=batch_size, shuffle=True)
         exemplar_loader = torch.utils.data.DataLoader(
@@ -473,7 +474,7 @@ def get_split_cifar100_tasks_joint(num_tasks, batch_size):
     num_elements_test = len(cifar_test)/2
 
     test_ds, val_ds = random_split(cifar_test, [int(num_elements_test), int(
-       num_elements_test)], generator=torch.Generator().manual_seed(42))
+       num_elements_test)], generator=torch.Generator().manual_seed(get_seed()))
 
     test_loader = torch.utils.data.DataLoader(test_ds, batch_size=batch_size)
     val_loader = torch.utils.data.DataLoader(val_ds, batch_size=batch_size)
@@ -484,7 +485,7 @@ def get_split_cifar100_tasks_joint(num_tasks, batch_size):
     for task_id in range(1, num_tasks+1):
 
         train_ds, residual = random_split(train, [int(num_elements_train), int(
-            (len(train)-num_elements_train))], generator=torch.Generator().manual_seed(42))
+            (len(train)-num_elements_train))], generator=torch.Generator().manual_seed(get_seed()))
         if task_id == 1:
             train_j = train_ds
         else:

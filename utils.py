@@ -19,6 +19,7 @@ from sklearn.preprocessing import StandardScaler
 TRIAL_ID = uuid.uuid4().hex.upper()[0:6]
 EXPERIMENT_DIRECTORY = './outputs/{}'.format(TRIAL_ID)
 DEVICE = 'cuda' if torch.cuda.is_available() else 'cpu'
+SEED = 123
 
 
 def parse_arguments():
@@ -40,6 +41,9 @@ def parse_arguments():
 	return args
 
 
+def get_seed() :
+	return SEED
+
 def init_experiment(args):
 	print('------------------- Experiment started -----------------')
 	print(f"Parameters:\n  seed={args.seed}\n  benchmark={args.dataset}\n  num_tasks={args.tasks}\n  "+
@@ -49,6 +53,8 @@ def init_experiment(args):
 	
 	# 1. setup seed for reproducibility
 	torch.manual_seed(args.seed)
+	global SEED
+	SEED = args.seed
 	np.random.seed(args.seed)
 	
 	# 2. create directory to save results
