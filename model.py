@@ -2,7 +2,6 @@ import torch
 import torch.nn as nn
 from torch.nn.functional import relu, avg_pool2d
 from torch.nn.modules import padding
-from torchvision.models import resnet18
 
 
 class MLP(nn.Module):

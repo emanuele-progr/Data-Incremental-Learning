@@ -8,12 +8,12 @@ import random
 import numpy as np
 import torch.nn as nn
 import pandas as pd
-matplotlib.use('Agg')
 import seaborn as sns
 from pathlib import Path
 from torch.utils.data import DataLoader
 import matplotlib.pyplot as plt
-#from external_libs.hessian_eigenthings import compute_hessian_eigenthings
+from sklearn.decomposition import PCA
+from sklearn.preprocessing import StandardScaler
 
 
 TRIAL_ID = uuid.uuid4().hex.upper()[0:6]
@@ -25,9 +25,10 @@ def parse_arguments():
 	parser = argparse.ArgumentParser(description='Argument parser')
 	parser.add_argument('--tasks', default=5, type=int, help='total number of tasks')
 	parser.add_argument('--epochs-per-task', default=1, type=int, help='epochs per task')
-	parser.add_argument('--dataset', default='rot-mnist', type=str, help='dataset. options: rot-mnist, perm-mnist, cifar100')
+	parser.add_argument('--dataset', default='cifar100', type=str, help='dataset. options: mnist, cifar10, cifar100, imagenet')
 	parser.add_argument('--batch-size', default=64, type=int, help='batch-size')
-	parser.add_argument('--lr', default=0.1, type=float, help='learning rate')
+	parser.add_argument('--exemplars', default=0, type=int, help='exemplars memory size at each task')
+	parser.add_argument('--lr', default=0.001, type=float, help='learning rate')
 	parser.add_argument('--gamma', default=0.0, type=float, help='learning rate decay. Use 1.0 for no decay')
 	parser.add_argument('--dropout', default=0.0, type=float, help='dropout probability. Use 0.0 for no dropout')
 	parser.add_argument('--hiddens', default=256, type=int, help='num of hidden neurons in each layer of a 2-layer MLP')
@@ -43,7 +44,8 @@ def init_experiment(args):
 	print('------------------- Experiment started -----------------')
 	print(f"Parameters:\n  seed={args.seed}\n  benchmark={args.dataset}\n  num_tasks={args.tasks}\n  "+
 		  f"epochs_per_task={args.epochs_per_task}\n  batch_size={args.batch_size}\n  "+
-		  f"learning_rate={args.lr}\n  learning rate decay(gamma)={args.gamma}\n  dropout prob={args.dropout}\n")
+		  f"learning_rate={args.lr}\n  learning rate decay(gamma)={args.gamma}\n  dropout prob={args.dropout}\n  " +
+		  f"exemplars memory={args.exemplars}\n ")
 	
 	# 1. setup seed for reproducibility
 	torch.manual_seed(args.seed)
@@ -108,45 +110,6 @@ def log_metrics(metrics, time, task_id, acc_db, loss_db):
 	return acc_db, loss_db
 
 
-def save_eigenvec(filename, arr):
-	"""
-	Save eigenvectors to file
-	"""
-	np.save(filename, arr)
-
-'''
-def log_hessian(model, loader, time, task_id, hessian_eig_db):
-	"""
-	Compute and log Hessian for a specific task
-	
-	:param model:  The PyTorch Model
-	:param loader: Dataloader [to calculate loss and then Hessian]
-	:param time: time is a discrete concept regarding epoch. If we have T tasks each with E epoch,
-	time will be from 0, to (T x E)-1. E.g., if we have 5 tasks with 5 epochs each, then when we finish
-	task 1, time will be 5.
-	:param task_id: Task id (to distiniguish between Hessians of different tasks)
-	:param hessian_eig_db: (The dictionary to store hessians)
-	:return:
-	"""
-	criterion = torch.nn.CrossEntropyLoss().to(DEVICE)
-	use_gpu = True if DEVICE != 'cpu' else False
-	est_eigenvals, est_eigenvecs = compute_hessian_eigenthings(
-		model,
-		loader,
-		criterion,
-		num_eigenthings=3,
-		power_iter_steps=18,
-		power_iter_err_threshold=1e-5,
-		momentum=0,
-		use_gpu=use_gpu,
-	)
-	key = 'task-{}-epoch-{}'.format(task_id, time-1)
-	hessian_eig_db[key] = est_eigenvals
-	save_eigenvec(EXPERIMENT_DIRECTORY+"/{}-vec.npy".format(key), est_eigenvecs)
-	return hessian_eig_db
-
-'''
-
 
 def save_checkpoint(model, time):
 	"""
@@ -200,6 +163,8 @@ def compute_fisher_matrix_diag(train_loader, model, optimizer, current_task_id, 
 
 	return fisher
 
+
+
 def post_train_process_ewc(train_loader, model, optimizer, current_task_id, fisher):
 
 	alpha = 0.5
@@ -218,9 +183,6 @@ def post_train_process_fd(model):
 	model_old.freeze_all()
 	
 	return model_old
-
-
-
 
 
 
@@ -277,9 +239,8 @@ def herdingExemplarsSelector(model, loader, task_id, num_exemplars):
 	return final_result
 
 
-def randomExemplarsSelector(model, loader, task_id, num_exemplars):
+def randomExemplarsSelector(model, loader, task_id, num_exemplars, num_cls):
 	exemplars_per_class = num_exemplars
-	num_cls = 100
 	result = []
 	final_result = []
 	targets = np.array([])
@@ -296,6 +257,8 @@ def randomExemplarsSelector(model, loader, task_id, num_exemplars):
 
 	
 	return final_result
+
+
 
 
 def entropyExemplarsSelector(model, loader, task_id,  num_exemplars):
@@ -383,5 +346,83 @@ def compute_mean_of_exemplars(model, exemplars_loader, task_id):
 	return exemplar_means
 
 
+def plot_conf_matrix(matrix):
 
+    plt.figure(1, figsize=(9, 6))
+ 
+    plt.title("Confusion Matrix")
+    df_cm = pd.DataFrame(matrix, range(len(matrix[0])), range(len(matrix[0])))
+    sns.set(font_scale=1.4)
+    sns.heatmap(df_cm, annot=True, annot_kws={"size": 12},  fmt='g') 
+    plt.savefig("confmatrix", bbox_inches='tight', dpi=300)
+    plt.show()
+    plt.close()
+
+
+
+def make_prediction_vector(X, Y):
+	pred_vector = [0] * len(X)
+	for i in range(len(X)):
+		if X[i] == Y[i]:
+			pred_vector[i] = 1
+
+	return pred_vector
+
+def count_common_pred(pred_vector1, pred_vector2):
+	count = 0
+	for i in range(len(pred_vector2)):
+		if pred_vector2[i] == 1:
+			count += pred_vector1[i]
+	
+	return count
+
+def forgetting_metric(current_pred_vector, pred_vector_list, current_task_id):
+	num = 0
+	den = 0
+	for i in reversed(range(current_task_id)):
+		if i > 0:
+			num += count_common_pred(current_pred_vector, pred_vector_list[i])
+			den += sum(pred_vector_list[i])
+	
+	if current_task_id > 1:
+		forgetting = float(num)/den
+	else:
+		forgetting = 0
+
+	return 1 - forgetting
+
+def get_PCA_components(features):
+
+    x = StandardScaler().fit_transform(features[0])
+    pca = PCA(n_components=2)
+
+    principalComponents = pca.fit_transform(x)
+    principalDf = pd.DataFrame(data=principalComponents, columns = ['principal component 1', 'principal component 2'])
+
+    fig = plt.figure(figsize=(8, 8))
+    ax = fig.add_subplot(1, 1, 1)
+    legend = ['task_1', 'task_5', 'task_10']
+    ax.set_xlabel('Principal Component 1', fontsize=15)
+    ax.set_ylabel('Principal Component 2', fontsize=15)
+    ax.set_title('2 component PCA', fontsize=20)
+    ax.scatter(principalDf.loc[:, 'principal component 1'], principalDf.loc[:, 'principal component 2'], c='r', s = 50)
+
+    x = StandardScaler().fit_transform(features[4])
+    pca = PCA(n_components=2)
+
+    principalComponents = pca.fit_transform(x)
+    principalDf = pd.DataFrame(data=principalComponents, columns = ['principal component 1', 'principal component 2'])
+
+    ax.scatter(principalDf.loc[:, 'principal component 1'], principalDf.loc[:, 'principal component 2'], c='g', s = 50)
+
+    x = StandardScaler().fit_transform(features[9])
+    pca = PCA(n_components=2)
+
+    principalComponents = pca.fit_transform(x)
+    principalDf = pd.DataFrame(data=principalComponents, columns = ['principal component 1', 'principal component 2'])
+
+    ax.scatter(principalDf.loc[:, 'principal component 1'], principalDf.loc[:, 'principal component 2'], c='b', s = 50)
+    ax.legend(legend)
+    ax.grid()
+    fig.savefig('prova.png')
 

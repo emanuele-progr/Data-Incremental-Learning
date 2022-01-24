@@ -1,493 +1,307 @@
 import numpy as np
+from sklearn.utils import shuffle
 import torch
 import torchvision
 import aug_lib
-from torch.utils.data import TensorDataset, DataLoader
+import os
+import sys
 from torch.utils.data import random_split, ConcatDataset
 from sklearn.model_selection import train_test_split
 import torchvision.transforms.functional as TorchVisionFunc
+import pandas as pd
+import matplotlib
+import matplotlib.pyplot as plt
+from torch.utils.data import TensorDataset, Dataset, DataLoader
+from torchvision import models, utils, datasets, transforms
+from PIL import Image
 
 
-def get_permuted_mnist(task_id, batch_size):
-	"""
-	Get the dataset loaders (train and test) for a `single` task of permuted MNIST.
-	This function will be called several times for each task.
-	
-	:param task_id: id of the task [starts from 1]
-	:param batch_size:
-	:return: a tuple: (train loader, test loader)
-	"""
-	
-	# convention, the first task will be the original MNIST images, and hence no permutation
-	if task_id == 1:
-		idx_permute = np.array(range(784))
-	else:
-		idx_permute = torch.from_numpy(np.random.RandomState().permutation(784))
-	transforms = torchvision.transforms.Compose([torchvision.transforms.ToTensor(),
-				torchvision.transforms.Lambda(lambda x: x.view(-1)[idx_permute] ),
-				])
-	mnist_train = torchvision.datasets.MNIST('./data/', train=True, download=True, transform=transforms)
-	train_loader = torch.utils.data.DataLoader(mnist_train, batch_size=batch_size, num_workers=4, pin_memory=True, shuffle=True)
-	test_loader = torch.utils.data.DataLoader(torchvision.datasets.MNIST('./data/', train=False, download=True, transform=transforms),  batch_size=256, shuffle=False, num_workers=4, pin_memory=True)
+DATA_DIR = 'tiny-imagenet-200'  # Original images come in shapes of [3,64,64]
 
-	return train_loader, test_loader
+# Define training and validation data paths
+TRAIN_DIR = os.path.join(DATA_DIR, 'train')
+VALID_DIR = os.path.join(DATA_DIR, 'val')
 
+class TinyImageNet(Dataset):
+	def __init__(self, root, train=True, transform=None):
+		self.Train = train
+		self.root_dir = root
+		self.transform = transform
+		self.train_dir = os.path.join(self.root_dir, "train")
+		self.val_dir = os.path.join(self.root_dir, "val")
 
-def get_permuted_mnist_tasks(num_tasks, batch_size):
-	"""
-	Returns the datasets for sequential tasks of permuted MNIST
-	
-	:param num_tasks: number of tasks.
-	:param batch_size: batch-size for loaders.
-	:return: a dictionary where each key is a dictionary itself with train, and test loaders.
-	"""
-	datasets = {}
-	for task_id in range(1, num_tasks+1):
-		train_loader, test_loader = get_permuted_mnist(task_id, batch_size)
-		datasets[task_id] = {'train': train_loader, 'test': test_loader}
-	return datasets
+		if (self.Train):
+			self._create_class_idx_dict_train()
+		else:
+			self._create_class_idx_dict_val()
 
+		self._make_dataset(self.Train)
 
-class RotationTransform:
-	"""
-	Rotation transforms for the images in `Rotation MNIST` dataset.
-	"""
-	def __init__(self, angle):
-		self.angle = angle
+		words_file = os.path.join(self.root_dir, "words.txt")
+		wnids_file = os.path.join(self.root_dir, "wnids.txt")
 
-	def __call__(self, x):
-		return TorchVisionFunc.rotate(x, self.angle, fill=(0,))
+		self.set_nids = set()
 
+		with open(wnids_file, 'r') as fo:
+			data = fo.readlines()
+			for entry in data:
+				self.set_nids.add(entry.strip("\n"))
 
-def get_rotated_mnist(task_id, batch_size):
-	"""
-	Returns the dataset for a single task of Rotation MNIST dataset
-	:param task_id:
-	:param batch_size:
-	:return:
-	"""
-	per_task_rotation = 10
-	rotation_degree = (task_id - 1)*per_task_rotation
-	rotation_degree -= (np.random.random()*per_task_rotation)
+		self.class_to_label = {}
+		with open(words_file, 'r') as fo:
+			data = fo.readlines()
+			for entry in data:
+				words = entry.split("\t")
+				if words[0] in self.set_nids:
+					self.class_to_label[words[0]] = (
+						words[1].strip("\n").split(","))[0]
 
-	transforms = torchvision.transforms.Compose([
-		RotationTransform(rotation_degree),
-		torchvision.transforms.ToTensor(),
-		])
+	def _create_class_idx_dict_train(self):
+		if sys.version_info >= (3, 5):
+			classes = [d.name for d in os.scandir(
+				self.train_dir) if d.is_dir()]
+		else:
+			classes = [d for d in os.listdir(
+				self.train_dir) if os.path.isdir(os.path.join(train_dir, d))]
+		classes = sorted(classes)
+		num_images = 0
+		for root, dirs, files in os.walk(self.train_dir):
+			for f in files:
+				if f.endswith(".JPEG"):
+					num_images = num_images + 1
 
-	train_loader = torch.utils.data.DataLoader(torchvision.datasets.MNIST('./data/', train=True, download=True, transform=transforms), batch_size=batch_size, shuffle=True, num_workers=4, pin_memory=True)
-	test_loader = torch.utils.data.DataLoader(torchvision.datasets.MNIST('./data/', train=False, download=True, transform=transforms),  batch_size=256, shuffle=False, num_workers=4, pin_memory=True)
+		self.len_dataset = num_images
 
-	return train_loader, test_loader
+		self.tgt_idx_to_class = {i: classes[i]
+			for i in range(len(classes))}
+		self.class_to_tgt_idx = {
+			classes[i]: i for i in range(len(classes))}
 
+	def _create_class_idx_dict_val(self):
+		val_image_dir = os.path.join(self.val_dir, "images")
+		if sys.version_info >= (3, 5):
+			images = [d.name for d in os.scandir(
+				val_image_dir) if d.is_file()]
+		else:
+			images = [d for d in os.listdir(
+				val_image_dir) if os.path.isfile(os.path.join(train_dir, d))]
+		val_annotations_file = os.path.join(
+			self.val_dir, "val_annotations.txt")
+		self.val_img_to_class = {}
+		set_of_classes = set()
+		with open(val_annotations_file, 'r') as fo:
+			entry = fo.readlines()
+			for data in entry:
+				words = data.split("\t")
+				self.val_img_to_class[words[0]] = words[1]
+				set_of_classes.add(words[1])
 
-def get_rotated_mnist_tasks(num_tasks, batch_size):
-	"""
-	Returns data loaders for all tasks of rotation MNIST dataset.
-	:param num_tasks: number of tasks in the benchmark.
-	:param batch_size:
-	:return:
-	"""
-	datasets = {}
-	for task_id in range(1, num_tasks+1):
-		train_loader, test_loader = get_rotated_mnist(task_id, batch_size)
-		datasets[task_id] = {'train': train_loader, 'test': test_loader}
-	return datasets
+		self.len_dataset = len(list(self.val_img_to_class.keys()))
+		classes = sorted(list(set_of_classes))
+		# self.idx_to_class = {i:self.val_img_to_class[images[i]] for i in range(len(images))}
+		self.class_to_tgt_idx = {
+			classes[i]: i for i in range(len(classes))}
+		self.tgt_idx_to_class = {i: classes[i]
+			for i in range(len(classes))}
 
+	def _make_dataset(self, Train=True):
+		self.images = []
+		if Train:
+			img_root_dir = self.train_dir
+			list_of_dirs = [
+				target for target in self.class_to_tgt_idx.keys()]
+		else:
+			img_root_dir = self.val_dir
+			list_of_dirs = ["images"]
 
-def get_split_cifar100(task_id, batch_size, cifar_train, cifar_test):
-	"""
-	Returns a single task of split CIFAR-100 dataset
-	:param task_id:
-	:param batch_size:
-	:return:
-	"""
-	
+		for tgt in list_of_dirs:
+			dirs = os.path.join(img_root_dir, tgt)
+			if not os.path.isdir(dirs):
+				continue
 
-	start_class = (task_id-1)*5
-	end_class = task_id * 5
+			for root, _, files in sorted(os.walk(dirs)):
+				for fname in sorted(files):
+					if (fname.endswith(".JPEG")):
+						path = os.path.join(root, fname)
+						if Train:
+							item = (path, self.class_to_tgt_idx[tgt])
+						else:
+							item = (
+								path, self.class_to_tgt_idx[self.val_img_to_class[fname]])
+						self.images.append(item)
 
-	targets_train = torch.tensor(cifar_train.targets)
-	target_train_idx = ((targets_train >= start_class) & (targets_train < end_class))
-	
-	targets_test = torch.tensor(cifar_test.targets)
-	target_test_idx = ((targets_test >= start_class) & (targets_test < end_class))
+	def return_label(self, idx):
+		return [self.class_to_label[self.tgt_idx_to_class[i.item()]] for i in idx]
 
-	train_loader = torch.utils.data.DataLoader(torch.utils.data.dataset.Subset(cifar_train, np.where(target_train_idx==1)[0]), batch_size=batch_size, shuffle=True)
-	test_loader = torch.utils.data.DataLoader(torch.utils.data.dataset.Subset(cifar_test, np.where(target_test_idx==1)[0]), batch_size=batch_size)
+	def __len__(self):
+		return self.len_dataset
 
-	return train_loader, test_loader
+	def __getitem__(self, idx):
+		img_path, tgt = self.images[idx]
+		with open(img_path, 'rb') as f:
+			sample = Image.open(img_path)
+			sample = sample.convert('RGB')
+		if self.transform is not None:
+			sample = self.transform(sample)
+
+		return sample, tgt
+
 
 
 def get_split_cifar100_tasks(num_tasks, batch_size):
-	"""
-	Returns data loaders for all tasks of split CIFAR-100
-	:param num_tasks:
-	:param batch_size:
-	:return:
-	"""
-	datasets = {}
-	
-	# convention: tasks starts from 1 not 0 !
-	# task_id = 1 (i.e., first task) => start_class = 0, end_class = 4
-	cifar_transforms = torchvision.transforms.Compose([torchvision.transforms.ToTensor(),])
-	cifar_train = torchvision.datasets.CIFAR100('./data/', train=True, download=True, transform=cifar_transforms)
-	cifar_test = torchvision.datasets.CIFAR100('./data/', train=False, download=True, transform=cifar_transforms)
-	
-	for task_id in range(1, num_tasks+1):
-		train_loader, test_loader = get_split_cifar100(task_id, batch_size, cifar_train, cifar_test)
-		datasets[task_id] = {'train': train_loader, 'test': test_loader}
-	return datasets
-
-# if __name__ == "__main__":
-# 	dataset = get_split_cifar100(1)
-
-def get_split_cifar100_tasks2(num_tasks, batch_size):
-
-	datasets = {}
-
-	# convention: tasks starts from 1 not 0 !
-	# task_id = 1 (i.e., first task) => start_class = 0, end_class = 4
-	cifar_train_transforms = torchvision.transforms.Compose([torchvision.transforms.RandomHorizontalFlip(),torchvision.transforms.RandomCrop(32,padding=4,padding_mode="reflect"),torchvision.transforms.ToTensor(),])
-	cifar_test_transforms = torchvision.transforms.Compose([torchvision.transforms.ToTensor(),])
-	cifar_train = torchvision.datasets.CIFAR100('./data/', train=True, download=True, transform=cifar_train_transforms)
-	cifar_test = torchvision.datasets.CIFAR100('./data/', train=False, download=True, transform=cifar_test_transforms)
-
-	num_elements_train = len(cifar_train)/num_tasks
-	num_elements_test = len(cifar_test)/2
-
-
-	#test_indices, _ = train_test_split(list(range(len(cifar_test.targets))), train_size = num_elements_test, stratify = cifar_test.targets)
-	#test_dataset = torch.utils.data.Subset(cifar_test, test_indices)
-
-	test_ds, val_ds = random_split(cifar_test, [int(num_elements_test), int(num_elements_test)], generator=torch.Generator().manual_seed(42))
-
-
-	test_loader = torch.utils.data.DataLoader(test_ds, batch_size=batch_size)
-	val_loader  = torch.utils.data.DataLoader(val_ds, batch_size=batch_size)
-
-	list_item = list(range(len(cifar_train.targets)))
-
-	train = cifar_train
-
-
-	
-	for task_id in range(1, num_tasks+1):
-
-		train_ds, residual = random_split(train, [int(num_elements_train), int((len(train)-num_elements_train))], generator=torch.Generator().manual_seed(42))
-		train_loader = torch.utils.data.DataLoader(train_ds, batch_size=batch_size, shuffle=True)
-		exemplar_loader = torch.utils.data.DataLoader(train_ds, batch_size=batch_size)
-		train = residual
-		'''
-		train_indices, cifar_train_indices = train_test_split(list_item, train_size = num_elements_train, stratify = cifar_train.targets)
-		train_dataset = torch.utils.data.Subset(cifar_train, train_indices)
-		train_loader = torch.utils.data.DataLoader(train_dataset, batch_size=batch_size)
-		list_item = list(set(list_item) - set(cifar_train_indices))
-		'''
-		datasets[task_id] = {'train': train_loader, 'test': test_loader, 'val': val_loader, 'exemplar': exemplar_loader}
-		
-	return datasets
-
-
-def get_split_cifar100_tasks2_with_augment(num_tasks, batch_size):
-
-	datasets = {}
-
-	# convention: tasks starts from 1 not 0 !
-	# task_id = 1 (i.e., first task) => start_class = 0, end_class = 4
-	cifar_train_transforms = torchvision.transforms.Compose([torchvision.transforms.RandomHorizontalFlip(),torchvision.transforms.RandomCrop(32,padding=4,padding_mode="reflect"),torchvision.transforms.ToTensor(),])
-	cifar_test_transforms = torchvision.transforms.Compose([torchvision.transforms.ToTensor(),])
-	augment = torchvision.transforms.Compose([aug_lib.TrivialAugment(), torchvision.transforms.ToTensor(),])
-	cifar_train = torchvision.datasets.CIFAR100('./data/', train=True, download=True, transform=cifar_train_transforms)
-	cifar_test = torchvision.datasets.CIFAR100('./data/', train=False, download=True, transform=cifar_test_transforms)
-	cifar_train_aug = torchvision.datasets.CIFAR100('./data/', train=True, download=True, transform=augment)
-
-	num_elements_train = len(cifar_train)/num_tasks
-	num_elements_test = len(cifar_test)/2
-	num_aug = 2000
-
-
-	#test_indices, _ = train_test_split(list(range(len(cifar_test.targets))), train_size = num_elements_test, stratify = cifar_test.targets)
-	#test_dataset = torch.utils.data.Subset(cifar_test, test_indices)
-
-	test_ds, val_ds = random_split(cifar_test, [int(num_elements_test), int(num_elements_test)], generator=torch.Generator().manual_seed(42))
-
-
-	test_loader = torch.utils.data.DataLoader(test_ds, batch_size=batch_size)
-	val_loader  = torch.utils.data.DataLoader(val_ds, batch_size=batch_size)
-
-	list_item = list(range(len(cifar_train.targets)))
-
-	train = cifar_train
-
-
-	
-	for task_id in range(1, num_tasks+1):
-
-		train_ds, residual = random_split(train, [int(num_elements_train), int((len(train)-num_elements_train))], generator=torch.Generator().manual_seed(42))
-		if task_id == 1:
-			aug_ds, aug_residual = random_split(train, [int(num_elements_train), int((len(train)-num_elements_train))], generator=torch.Generator().manual_seed(42))
-			aug_ds, aug_residual = random_split(aug_ds, [int(num_aug), int((len(aug_ds)-num_aug))], generator=torch.Generator().manual_seed(42))
-			train_loader = torch.utils.data.DataLoader(train_ds + aug_ds, batch_size=batch_size, shuffle=True)
-		else:
-			train_loader = torch.utils.data.DataLoader(train_ds, batch_size=batch_size, shuffle=True)
-		exemplar_loader = torch.utils.data.DataLoader(train_ds, batch_size=batch_size)
-		train = residual
-		'''
-		train_indices, cifar_train_indices = train_test_split(list_item, train_size = num_elements_train, stratify = cifar_train.targets)
-		train_dataset = torch.utils.data.Subset(cifar_train, train_indices)
-		train_loader = torch.utils.data.DataLoader(train_dataset, batch_size=batch_size)
-		list_item = list(set(list_item) - set(cifar_train_indices))
-		'''
-		datasets[task_id] = {'train': train_loader, 'test': test_loader, 'val': val_loader, 'exemplar': exemplar_loader}
-		
-	return datasets
-
-
-def get_split_cifar100_tasks2_memory(num_tasks, batch_size):
-
-	datasets = {}
-
-	# convention: tasks starts from 1 not 0 !
-	# task_id = 1 (i.e., first task) => start_class = 0, end_class = 4
-	cifar_train_transforms = torchvision.transforms.Compose([torchvision.transforms.RandomHorizontalFlip(),torchvision.transforms.RandomCrop(32,padding=4,padding_mode="reflect"),torchvision.transforms.ToTensor(),])
-	cifar_test_transforms = torchvision.transforms.Compose([torchvision.transforms.ToTensor(),])
-	cifar_train = torchvision.datasets.CIFAR100('./data/', train=True, download=True, transform=cifar_train_transforms)
-	cifar_test = torchvision.datasets.CIFAR100('./data/', train=False, download=True, transform=cifar_test_transforms)
-
-	num_elements_train = len(cifar_train)/num_tasks
-	num_elements_test = len(cifar_test)/2
-
-
-	#test_indices, _ = train_test_split(list(range(len(cifar_test.targets))), train_size = num_elements_test, stratify = cifar_test.targets)
-	#test_dataset = torch.utils.data.Subset(cifar_test, test_indices)
-
-	test_ds, val_ds = random_split(cifar_test, [int(num_elements_test), int(num_elements_test)], generator=torch.Generator().manual_seed(42))
-
-
-	test_loader = torch.utils.data.DataLoader(test_ds, batch_size=batch_size)
-	val_loader  = torch.utils.data.DataLoader(val_ds, batch_size=batch_size)
-
-	list_item = list(range(len(cifar_train.targets)))
-
-	train = cifar_train
-	accumulator = None
-	exemplar_loader_list = []
-
-
-	
-	for task_id in range(1, num_tasks+1):
-
-		train_ds, residual = random_split(train, [int(num_elements_train), int((len(train)-num_elements_train))], generator=torch.Generator().manual_seed(42))
-		accumulator = train_ds
-		if task_id > 1:
-			for exemplars in exemplar_loader_list:
-				accumulator += exemplars
-		train_loader = torch.utils.data.DataLoader(train_ds, batch_size=batch_size, shuffle=True)
-		exemplar_loader = torch.utils.data.DataLoader(accumulator, batch_size=batch_size)
-		train = residual
-		'''
-		train_indices, cifar_train_indices = train_test_split(list_item, train_size = num_elements_train, stratify = cifar_train.targets)
-		train_dataset = torch.utils.data.Subset(cifar_train, train_indices)
-		train_loader = torch.utils.data.DataLoader(train_dataset, batch_size=batch_size)
-		list_item = list(set(list_item) - set(cifar_train_indices))
-		'''
-		datasets[task_id] = {'train': train_loader, 'test': test_loader, 'val': val_loader, 'exemplar': exemplar_loader}
-		
-	return datasets
-'''
-def dataset_manipulation():
-	datasets = {}
-
-	# convention: tasks starts from 1 not 0 !
-	# task_id = 1 (i.e., first task) => start_class = 0, end_class = 4
-	cifar_train_transforms = torchvision.transforms.Compose([torchvision.transforms.RandomHorizontalFlip(),torchvision.transforms.RandomCrop(32,padding=4,padding_mode="reflect"),torchvision.transforms.ToTensor(),])
-	cifar_test_transforms = torchvision.transforms.Compose([torchvision.transforms.ToTensor(),])
-	cifar_train = torchvision.datasets.CIFAR100('./data/', train=True, download=True, transform=cifar_train_transforms)
-	cifar_test = torchvision.datasets.CIFAR100('./data/', train=False, download=True, transform=cifar_test_transforms)
-
-	num_elements_train = len(cifar_train)/10
-	num_elements_test = len(cifar_test)/2
-
-
-	#test_indices, _ = train_test_split(list(range(len(cifar_test.targets))), train_size = num_elements_test, stratify = cifar_test.targets)
-	#test_dataset = torch.utils.data.Subset(cifar_test, test_indices)
-
-	test_ds, val_ds = random_split(cifar_test, [int(num_elements_test), int(num_elements_test)], generator=torch.Generator().manual_seed(42))
-
-	sub_test = torch.utils.data.Subset(test_ds, range(0,1000))
-
-
-
-	test_loader = torch.utils.data.DataLoader(test_ds, batch_size=64)
-	val_loader  = torch.utils.data.DataLoader(val_ds, batch_size=64)
-
-	sub_test2 = torch.utils.data.Subset(test_loader.dataset, range(0,1000))
-
-	print(len(sub_test2))
-
-	list_item = list(range(len(cifar_train.targets)))
-
-	train = cifar_train
-
-	targets = np.array([])
-
-
-	for data, target in test_loader:
-		arr = target.cpu().detach().numpy()
-		targets = np.concatenate([targets, arr])
-
-	global_class_indices = np.column_stack(np.nonzero(targets))
-	label = 2
-	
-'''
-
-
-	
-
-
-
-def get_split_cifar100_tasks_with_random_exemplar(num_tasks, batch_size):
-
-	datasets = {}
-
-	# convention: tasks starts from 1 not 0 !
-	# task_id = 1 (i.e., first task) => start_class = 0, end_class = 4
-	cifar_train_transforms = torchvision.transforms.Compose([torchvision.transforms.RandomHorizontalFlip(),torchvision.transforms.RandomCrop(32,padding=4,padding_mode="reflect"),torchvision.transforms.ToTensor(),])
-	cifar_test_transforms = torchvision.transforms.Compose([torchvision.transforms.ToTensor(),])
-	cifar_train = torchvision.datasets.CIFAR100('./data/', train=True, download=True, transform=cifar_train_transforms)
-	cifar_test = torchvision.datasets.CIFAR100('./data/', train=False, download=True, transform=cifar_test_transforms)
-
-	num_elements_train = len(cifar_train)/num_tasks
-	num_elements_test = len(cifar_test)/2
-
-
-	#test_indices, _ = train_test_split(list(range(len(cifar_test.targets))), train_size = num_elements_test, stratify = cifar_test.targets)
-	#test_dataset = torch.utils.data.Subset(cifar_test, test_indices)
-
-	test_ds, val_ds = random_split(cifar_test, [int(num_elements_test), int(num_elements_test)], generator=torch.Generator().manual_seed(42))
-
-
-	test_loader = torch.utils.data.DataLoader(test_ds, batch_size=batch_size)
-	val_loader  = torch.utils.data.DataLoader(val_ds, batch_size=batch_size)
-
-	list_item = list(range(len(cifar_train.targets)))
-
-	train = cifar_train
-
-	memory = 2000
-	old_dataset = []
-	
-	for task_id in range(1, num_tasks+1):
-
-		train_ds, residual = random_split(train, [int(num_elements_train), int((len(train)-num_elements_train))], generator=torch.Generator().manual_seed(42))
-		#train_loader = torch.utils.data.DataLoader(train_ds, batch_size=batch_size)
-		train = residual
-
-
-		if task_id > 1:
-			num_exemplar = int(memory)/(task_id - 1)
-			for old_data in old_dataset:
-				exemplar, res = random_split(old_data, [round(num_exemplar), int((len(old_data)-round(num_exemplar)))], generator=torch.Generator().manual_seed(42))
-				train_ds = torch.utils.data.ConcatDataset([train_ds, exemplar])
-				
-		train_loader = torch.utils.data.DataLoader(train_ds, batch_size=batch_size)
-		old_dataset.append(train_ds)
-		'''
-		train_indices, cifar_train_indices = train_test_split(list_item, train_size = num_elements_train, stratify = cifar_train.targets)
-		train_dataset = torch.utils.data.Subset(cifar_train, train_indices)
-		train_loader = torch.utils.data.DataLoader(train_dataset, batch_size=batch_size)
-		list_item = list(set(list_item) - set(cifar_train_indices))
-		'''
-		print(len(train_ds))
-		
-		datasets[task_id] = {'train': train_loader, 'test': test_loader, 'val': val_loader}
-
-	return datasets
-
-
-def get_split_cifar100_tasks_with_random_exemplar2(num_tasks, batch_size):
-
-	datasets = {}
-
-	# convention: tasks starts from 1 not 0 !
-	# task_id = 1 (i.e., first task) => start_class = 0, end_class = 4
-	cifar_train_transforms = torchvision.transforms.Compose([torchvision.transforms.RandomHorizontalFlip(),torchvision.transforms.RandomCrop(32,padding=4,padding_mode="reflect"),torchvision.transforms.ToTensor(),])
-	cifar_test_transforms = torchvision.transforms.Compose([torchvision.transforms.ToTensor(),])
-	cifar_train = torchvision.datasets.CIFAR100('./data/', train=True, download=True, transform=cifar_train_transforms)
-	cifar_test = torchvision.datasets.CIFAR100('./data/', train=False, download=True, transform=cifar_test_transforms)
-
-	num_elements_train = len(cifar_train)/num_tasks
-	num_elements_test = len(cifar_test)/2
-
-
-	#test_indices, _ = train_test_split(list(range(len(cifar_test.targets))), train_size = num_elements_test, stratify = cifar_test.targets)
-	#test_dataset = torch.utils.data.Subset(cifar_test, test_indices)
-
-	test_ds, val_ds = random_split(cifar_test, [int(num_elements_test), int(num_elements_test)], generator=torch.Generator().manual_seed(42))
-
-
-	test_loader = torch.utils.data.DataLoader(test_ds, batch_size=batch_size)
-	val_loader  = torch.utils.data.DataLoader(val_ds, batch_size=batch_size)
-
-	list_item = list(range(len(cifar_train.targets)))
-
-	train = cifar_train
-
-	memory = 2000
-	old_dataset = []
-	
-	for task_id in range(1, num_tasks+1):
-
-		train_ds, residual = random_split(train, [int(num_elements_train), int((len(train)-num_elements_train))], generator=torch.Generator().manual_seed(42))
-		#train_loader = torch.utils.data.DataLoader(train_ds, batch_size=batch_size)
-		train = residual
-
-
-		if task_id > 1:
-			num_exemplar = int(memory)
-			for old_data in old_dataset:
-				exemplar, res = random_split(old_data, [round(num_exemplar), int((len(old_data)-round(num_exemplar)))], generator=torch.Generator().manual_seed(42))
-				train_ds = torch.utils.data.ConcatDataset([train_ds, exemplar])
-				
-		train_loader = torch.utils.data.DataLoader(train_ds, batch_size=batch_size)
-		old_dataset.append(train_ds)
-		'''
-		train_indices, cifar_train_indices = train_test_split(list_item, train_size = num_elements_train, stratify = cifar_train.targets)
-		train_dataset = torch.utils.data.Subset(cifar_train, train_indices)
-		train_loader = torch.utils.data.DataLoader(train_dataset, batch_size=batch_size)
-		list_item = list(set(list_item) - set(cifar_train_indices))
-		'''
-		print(len(train_ds))
-		
-		datasets[task_id] = {'train': train_loader, 'test': test_loader, 'val': val_loader}
-
-	return datasets
-
-def get_split_cifar100_tasks_joint(num_tasks, batch_size):
-
 
     datasets = {}
 
     # convention: tasks starts from 1 not 0 !
     # task_id = 1 (i.e., first task) => start_class = 0, end_class = 4
-    cifar_train_transforms = torchvision.transforms.Compose(
-        [torchvision.transforms.RandomHorizontalFlip(),
-    torchvision.transforms.RandomCrop(32,padding=4,padding_mode="reflect"),torchvision.transforms.ToTensor(),])
+    cifar_train_transforms = torchvision.transforms.Compose([torchvision.transforms.RandomHorizontalFlip(), torchvision.transforms.RandomCrop(32, padding=4,padding_mode="reflect"),torchvision.transforms.ToTensor(),])
     cifar_test_transforms = torchvision.transforms.Compose(
-        [torchvision.transforms.ToTensor(),])
+       [torchvision.transforms.ToTensor(), ])
     cifar_train = torchvision.datasets.CIFAR100(
-        './data/', train=True, download=True, transform=cifar_train_transforms)
+       './data/', train=True, download=True, transform=cifar_train_transforms)
     cifar_test = torchvision.datasets.CIFAR100(
-        './data/', train=False, download=True, transform=cifar_test_transforms)
+       './data/', train=False, download=True, transform=cifar_test_transforms)
 
     num_elements_train = len(cifar_train)/num_tasks
     num_elements_test = len(cifar_test)/2
-    
-    test_ds, val_ds = random_split(cifar_test, [int(num_elements_test), int(num_elements_test)], generator=torch.Generator().manual_seed(42))
 
-    # test_indices, _ = train_test_split(list(range(len(cifar_test.targets))), train_size = num_elements_test, stratify = cifar_test.targets)
-    # test_dataset = torch.utils.data.Subset(cifar_test, test_indices)
+
+    test_ds, val_ds = random_split(cifar_test, [int(num_elements_test), int(
+       num_elements_test)], generator=torch.Generator().manual_seed(42))
+
+    test_loader = torch.utils.data.DataLoader(test_ds, batch_size=batch_size)
+    val_loader = torch.utils.data.DataLoader(val_ds, batch_size=batch_size)
+
+    train = cifar_train
+
+    for task_id in range(1, num_tasks+1):
+
+        train_ds, residual = random_split(train, [int(num_elements_train), int(
+           (len(train)-num_elements_train))], generator=torch.Generator().manual_seed(42))
+        train_loader = torch.utils.data.DataLoader(
+           train_ds, batch_size=batch_size, shuffle=True)
+        exemplar_loader = torch.utils.data.DataLoader(
+           train_ds, batch_size=batch_size)
+        train = residual
+
+        datasets[task_id] = {'train': train_loader, 'test': test_loader,
+           'val': val_loader, 'exemplar': exemplar_loader}
+
+    return datasets
+
+
+
+def get_split_cifar10_tasks(num_tasks, batch_size):
+
+    datasets = {}
+
+    # convention: tasks starts from 1 not 0 !
+    # task_id = 1 (i.e., first task) => start_class = 0, end_class = 4
+    cifar_train_transforms = torchvision.transforms.Compose([torchvision.transforms.RandomHorizontalFlip(), torchvision.transforms.RandomCrop(32, padding=4,padding_mode="reflect"),torchvision.transforms.ToTensor(),])
+    cifar_test_transforms = torchvision.transforms.Compose([torchvision.transforms.ToTensor(), ])
+    cifar_train = torchvision.datasets.CIFAR10(
+       './data/', train=True, download=True, transform=cifar_train_transforms)
+    cifar_test = torchvision.datasets.CIFAR10(
+       './data/', train=False, download=True, transform=cifar_test_transforms)
+
+    num_elements_train = len(cifar_train)/num_tasks
+    num_elements_test = len(cifar_test)/2
+
+    test_ds, val_ds = random_split(cifar_test, [int(num_elements_test), int(
+       num_elements_test)], generator=torch.Generator().manual_seed(42))
+
+    test_loader = torch.utils.data.DataLoader(test_ds, batch_size=batch_size)
+    val_loader = torch.utils.data.DataLoader(val_ds, batch_size=batch_size)
+
+    train = cifar_train
+
+    for task_id in range(1, num_tasks+1):
+
+        train_ds, residual = random_split(train, [int(num_elements_train), int(
+           (len(train)-num_elements_train))], generator=torch.Generator().manual_seed(42))
+        train_loader = torch.utils.data.DataLoader(
+           train_ds, batch_size=batch_size, shuffle=True)
+        exemplar_loader = torch.utils.data.DataLoader(
+           train_ds, batch_size=batch_size)
+        train = residual
+
+        datasets[task_id] = {'train': train_loader,
+           'test': test_loader, 'val': val_loader, 'exemplar': exemplar_loader}
+
+    return datasets
+
+
+def get_split_MNIST_tasks(num_tasks, batch_size):
+
+    datasets = {}
+
+    # convention: tasks starts from 1 not 0 !
+    # task_id = 1 (i.e., first task) => start_class = 0, end_class = 4
+
+    mnist_train_transforms = torchvision.transforms.Compose([torchvision.transforms.RandomHorizontalFlip(), torchvision.transforms.RandomVerticalFlip(), torchvision.transforms.RandomRotation(5),torchvision.transforms.ToTensor(),])
+    mnist_test_transforms = torchvision.transforms.Compose(
+       [torchvision.transforms.ToTensor(), ])
+    mnist_train = torchvision.datasets.MNIST(
+       './data/', train=True, download=True, transform=mnist_train_transforms)
+    mnist_test = torchvision.datasets.MNIST(
+       './data/', train=False, download=True, transform=mnist_test_transforms)
+
+    num_elements_train = len(mnist_train)/num_tasks
+    num_elements_test = len(mnist_test)/2
+
+    test_ds, val_ds = random_split(mnist_test, [int(num_elements_test), int(
+       num_elements_test)], generator=torch.Generator().manual_seed(42))
+
+    test_loader = torch.utils.data.DataLoader(test_ds, batch_size=batch_size)
+    val_loader = torch.utils.data.DataLoader(val_ds, batch_size=batch_size)
+
+    list_item = list(range(len(mnist_train.targets)))
+
+    train = mnist_train
+
+    for task_id in range(1, num_tasks+1):
+
+        train_ds, residual = random_split(train, [int(num_elements_train), int(
+           (len(train)-num_elements_train))], generator=torch.Generator().manual_seed(42))
+        train_loader = torch.utils.data.DataLoader(
+           train_ds, batch_size=batch_size, shuffle=True)
+        exemplar_loader = torch.utils.data.DataLoader(
+           train_ds, batch_size=batch_size)
+        train = residual
+
+        datasets[task_id] = {'train': train_loader, 'test': test_loader,
+           'val': val_loader, 'exemplar': exemplar_loader}
+
+    return datasets
+
+
+def get_split_cifar100_tasks_with_augment(num_tasks, batch_size):
+
+    datasets = {}
+
+    # convention: tasks starts from 1 not 0 !
+    # task_id = 1 (i.e., first task) => start_class = 0, end_class = 4
+    cifar_train_transforms = torchvision.transforms.Compose([torchvision.transforms.RandomHorizontalFlip(), torchvision.transforms.RandomCrop(32, padding=4,padding_mode="reflect"),torchvision.transforms.ToTensor(),])
+    cifar_test_transforms = torchvision.transforms.Compose(
+       [torchvision.transforms.ToTensor(), ])
+    augment = torchvision.transforms.Compose(
+       [aug_lib.TrivialAugment(), torchvision.transforms.ToTensor(), ])
+    cifar_train = torchvision.datasets.CIFAR100(
+       './data/', train=True, download=True, transform=cifar_train_transforms)
+    cifar_test = torchvision.datasets.CIFAR100(
+       './data/', train=False, download=True, transform=cifar_test_transforms)
+    cifar_train_aug = torchvision.datasets.CIFAR100(
+       './data/', train=True, download=True, transform=augment)
+
+    num_elements_train = len(cifar_train)/num_tasks
+    num_elements_test = len(cifar_test)/2
+    num_aug = 2000
+
+    #test_indices, _ = train_test_split(list(range(len(cifar_test.targets))), train_size = num_elements_test, stratify = cifar_test.targets)
+    #test_dataset = torch.utils.data.Subset(cifar_test, test_indices)
+
+    test_ds, val_ds = random_split(cifar_test, [int(num_elements_test), int(
+       num_elements_test)], generator=torch.Generator().manual_seed(42))
 
     test_loader = torch.utils.data.DataLoader(test_ds, batch_size=batch_size)
     val_loader = torch.utils.data.DataLoader(val_ds, batch_size=batch_size)
@@ -499,72 +313,189 @@ def get_split_cifar100_tasks_joint(num_tasks, batch_size):
     for task_id in range(1, num_tasks+1):
 
         train_ds, residual = random_split(train, [int(num_elements_train), int(
+           (len(train)-num_elements_train))], generator=torch.Generator().manual_seed(42))
+        if task_id == 1:
+            aug_ds, aug_residual = random_split(train, [int(num_elements_train), int(
+               (len(train)-num_elements_train))], generator=torch.Generator().manual_seed(42))
+            aug_ds, aug_residual = random_split(aug_ds, [int(num_aug), int(
+               (len(aug_ds)-num_aug))], generator=torch.Generator().manual_seed(42))
+            train_loader = torch.utils.data.DataLoader(
+               train_ds + aug_ds, batch_size=batch_size, shuffle=True)
+        else:
+            train_loader = torch.utils.data.DataLoader(
+               train_ds, batch_size=batch_size, shuffle=True)
+        exemplar_loader = torch.utils.data.DataLoader(
+           train_ds, batch_size=batch_size)
+        train = residual
+
+        datasets[task_id] = {'train': train_loader, 'test': test_loader,
+           'val': val_loader, 'exemplar': exemplar_loader}
+
+    return datasets
+
+
+def get_split_cifar100_tasks_with_exemplars_linear_memory(num_tasks, batch_size):
+
+    datasets = {}
+
+    # convention: tasks starts from 1 not 0 !
+    # task_id = 1 (i.e., first task) => start_class = 0, end_class = 4
+    cifar_train_transforms = torchvision.transforms.Compose([torchvision.transforms.RandomHorizontalFlip(), torchvision.transforms.RandomCrop(32, padding=4,padding_mode="reflect"),torchvision.transforms.ToTensor(),])
+    cifar_test_transforms = torchvision.transforms.Compose(
+       [torchvision.transforms.ToTensor(), ])
+    cifar_train = torchvision.datasets.CIFAR100(
+       './data/', train=True, download=True, transform=cifar_train_transforms)
+    cifar_test = torchvision.datasets.CIFAR100(
+       './data/', train=False, download=True, transform=cifar_test_transforms)
+
+    num_elements_train = len(cifar_train)/num_tasks
+    num_elements_test = len(cifar_test)/2
+
+    test_ds, val_ds = random_split(cifar_test, [int(num_elements_test), int(
+       num_elements_test)], generator=torch.Generator().manual_seed(42))
+
+    test_loader = torch.utils.data.DataLoader(test_ds, batch_size=batch_size)
+    val_loader = torch.utils.data.DataLoader(val_ds, batch_size=batch_size)
+
+    train = cifar_train
+    accumulator = None
+    exemplar_loader_list = []
+
+    for task_id in range(1, num_tasks+1):
+
+        train_ds, residual = random_split(train, [int(num_elements_train), int(
+           (len(train)-num_elements_train))], generator=torch.Generator().manual_seed(42))
+        accumulator = train_ds
+        if task_id > 1:
+            for exemplars in exemplar_loader_list:
+                accumulator += exemplars
+        train_loader = torch.utils.data.DataLoader(
+           train_ds, batch_size=batch_size, shuffle=True)
+        exemplar_loader = torch.utils.data.DataLoader(
+           accumulator, batch_size=batch_size)
+        train = residual
+
+        datasets[task_id] = {'train': train_loader, 'test': test_loader,
+           'val': val_loader, 'exemplar': exemplar_loader}
+
+    return datasets
+
+
+def organize_validation_data_tiny_ImageNet():
+
+    val_img_dir = os.path.join(VALID_DIR, 'images')
+    # Open and read val annotations text file
+    fp = open(os.path.join(VALID_DIR, 'val_annotations.txt'), 'r')
+    data = fp.readlines()
+    # # Create dictionary to store img filename (word 0) and corresponding
+    # # label (word 1) for every line in the txt file (as key value pair)
+    val_img_dict = {}
+    for line in data:
+        words = line.split('\t')
+        val_img_dict[words[0]] = words[1]
+    fp.close()
+    for img, folder in val_img_dict.items():
+        newpath = (os.path.join(val_img_dir, folder))
+        if not os.path.exists(newpath):
+            os.makedirs(newpath)
+        if os.path.exists(os.path.join(val_img_dir, img)):
+            os.rename(os.path.join(val_img_dir, img),
+                      os.path.join(newpath, img))
+
+    return
+
+
+def get_split_tiny_ImageNet_tasks(num_tasks, batch_size):
+
+    datasets = {}
+    imageNet_train_transforms = torchvision.transforms.Compose([
+        torchvision.transforms.Resize(32),
+            torchvision.transforms.RandomCrop(32, padding=4, padding_mode="reflect"),
+        torchvision.transforms.RandomHorizontalFlip(),
+        torchvision.transforms.ToTensor(), ])
+    imageNet_test_transforms = torchvision.transforms.Compose([
+        torchvision.transforms.Resize(32),
+        torchvision.transforms.ToTensor(), ])
+
+    imageNet_train = TinyImageNet(DATA_DIR, train=True, transforms=imageNet_train_transforms)
+    imageNet_test = TinyImageNet(DATA_DIR, train=False, transforms=imageNet_test_transforms)
+    num_elements_train = len(imageNet_train)/num_tasks
+    num_elements_test = len(imageNet_test)/2
+
+    #test_indices, _ = train_test_split(list(range(len(cifar_test.targets))), train_size = num_elements_test, stratify = cifar_test.targets)
+    #test_dataset = torch.utils.data.Subset(cifar_test, test_indices)
+
+    test_ds, val_ds = random_split(imageNet_test, [int(num_elements_test), int(
+       num_elements_test)], generator=torch.Generator().manual_seed(42))
+
+    test_loader = torch.utils.data.DataLoader(test_ds, batch_size=batch_size)
+    val_loader = torch.utils.data.DataLoader(val_ds, batch_size=batch_size)
+
+    list_item = list(range(len(imageNet_train.targets)))
+
+    train = imageNet_train
+
+    for task_id in range(1, num_tasks+1):
+
+        train_ds, residual = random_split(train, [int(num_elements_train), int(
+           (len(train)-num_elements_train))], generator=torch.Generator().manual_seed(42))
+        train_loader = torch.utils.data.DataLoader(
+           train_ds, batch_size=batch_size, shuffle=True)
+        exemplar_loader = torch.utils.data.DataLoader(
+           train_ds, batch_size=batch_size)
+        train = residual
+
+        datasets[task_id] = {'train': train_loader, 'test': test_loader,
+           'val': val_loader, 'exemplar': exemplar_loader}
+
+    return datasets
+
+
+
+
+def get_split_cifar100_tasks_joint(num_tasks, batch_size):
+
+    datasets = {}
+
+    # convention: tasks starts from 1 not 0 !
+    # task_id = 1 (i.e., first task) => start_class = 0, end_class = 4
+    cifar_train_transforms = torchvision.transforms.Compose(
+        [torchvision.transforms.RandomHorizontalFlip(),
+    torchvision.transforms.RandomCrop(32, padding=4, padding_mode="reflect"),torchvision.transforms.ToTensor(),])
+    cifar_test_transforms = torchvision.transforms.Compose(
+        [torchvision.transforms.ToTensor(), ])
+    cifar_train = torchvision.datasets.CIFAR100(
+        './data/', train=True, download=True, transform=cifar_train_transforms)
+    cifar_test = torchvision.datasets.CIFAR100(
+        './data/', train=False, download=True, transform=cifar_test_transforms)
+
+    num_elements_train = len(cifar_train)/num_tasks
+    num_elements_test = len(cifar_test)/2
+
+    test_ds, val_ds = random_split(cifar_test, [int(num_elements_test), int(
+       num_elements_test)], generator=torch.Generator().manual_seed(42))
+
+    test_loader = torch.utils.data.DataLoader(test_ds, batch_size=batch_size)
+    val_loader = torch.utils.data.DataLoader(val_ds, batch_size=batch_size)
+    exemplar_loader = []
+
+    train = cifar_train
+
+    for task_id in range(1, num_tasks+1):
+
+        train_ds, residual = random_split(train, [int(num_elements_train), int(
             (len(train)-num_elements_train))], generator=torch.Generator().manual_seed(42))
         if task_id == 1:
             train_j = train_ds
         else:
             train_j = torch.utils.data.ConcatDataset([train_j, train_ds])
-        train_loader = torch.utils.data.DataLoader(train_j, batch_size=batch_size, shuffle=True)
-        train = residual
-        '''
-        train_indices, cifar_train_indices = train_test_split(
-            list_item, train_size = num_elements_train, stratify = cifar_train.targets)
-        train_dataset = torch.utils.data.Subset(cifar_train, train_indices)
         train_loader = torch.utils.data.DataLoader(
-            train_dataset, batch_size=batch_size)
-        list_item = list(set(list_item) - set(cifar_train_indices))
-        '''
-        datasets[task_id] = {'train': train_loader, 'test': test_loader, 'val': val_loader}
+           train_j, batch_size=batch_size, shuffle=True)
+        train = residual
+
+        datasets[task_id] = {'train': train_loader,
+           'test': test_loader, 'val': val_loader, 'exemplar': exemplar_loader}
 
     return datasets
-
-def get_split_cifar10_tasks(num_tasks, batch_size):
-
-	datasets = {}
-	
-	# convention: tasks starts from 1 not 0 !
-	# task_id = 1 (i.e., first task) => start_class = 0, end_class = 4
-	cifar_train_transforms = torchvision.transforms.Compose([torchvision.transforms.RandomHorizontalFlip(),torchvision.transforms.RandomCrop(32,padding=4,padding_mode="reflect"),torchvision.transforms.ToTensor(),])
-	cifar_test_transforms = torchvision.transforms.Compose([torchvision.transforms.ToTensor(),])	
-	cifar_train = torchvision.datasets.CIFAR10('./data/', train=True, download=True, transform=cifar_train_transforms)
-	cifar_test = torchvision.datasets.CIFAR10('./data/', train=False, download=True, transform=cifar_test_transforms)
-
-	num_elements_train = len(cifar_train)/num_tasks
-	num_elements_test = len(cifar_test)/2
-
-
-	#test_indices, _ = train_test_split(list(range(len(cifar_test.targets))), train_size = num_elements_test, stratify = cifar_test.targets)
-	#test_dataset = torch.utils.data.Subset(cifar_test, test_indices)
-
-
-	
-	test_ds, val_ds = random_split(cifar_test, [int(num_elements_test), int(num_elements_test)], generator=torch.Generator().manual_seed(42))
-
-
-	test_loader = torch.utils.data.DataLoader(test_ds, batch_size=batch_size)
-	val_loader  = torch.utils.data.DataLoader(val_ds, batch_size=batch_size)
-
-	list_item = list(range(len(cifar_train.targets)))
-
-	train = cifar_train
-
-
-	
-	for task_id in range(1, num_tasks+1):
-
-		train_ds, residual = random_split(train, [int(num_elements_train), int((len(train)-num_elements_train))], generator=torch.Generator().manual_seed(42))
-		train_loader = torch.utils.data.DataLoader(train_ds, batch_size=batch_size)
-		train = residual
-		'''
-		train_indices, cifar_train_indices = train_test_split(list_item, train_size = num_elements_train, stratify = cifar_train.targets)
-		train_dataset = torch.utils.data.Subset(cifar_train, train_indices)
-		train_loader = torch.utils.data.DataLoader(train_dataset, batch_size=batch_size)
-		list_item = list(set(list_item) - set(cifar_train_indices))
-		'''
-		datasets[task_id] = {'train': train_loader, 'test': test_loader, 'val': val_loader}
-		
-	return datasets
-
-
 
 
