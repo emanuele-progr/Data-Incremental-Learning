@@ -69,8 +69,8 @@ class BasicBlock(nn.Module):
 
 	def forward(self, x):
 		out = self.conv1(x)
-		out = relu(out)
 		out = self.IC1(out)
+		out = relu(out)
 		out = self.conv2(out)
 		out = self.IC2(out)
 
@@ -132,7 +132,7 @@ class ResNet2(nn.Module):
 		self.layer1 = self._make_layer(block, nf * 1, num_blocks[0], stride=1, config=config)
 		self.layer2 = self._make_layer(block, nf * 2, num_blocks[1], stride=2, config=config)
 		self.layer3 = self._make_layer(block, nf * 4, num_blocks[2], stride=2, config=config)
-		self.linear = nn.Linear(64 * block.expansion, num_classes)
+		self.linear = nn.Linear(nf * 4 * block.expansion, num_classes)
 
 	def _make_layer(self, block, planes, num_blocks, stride, config):
 		strides = [stride] + [1] * (num_blocks - 1)
@@ -169,6 +169,3 @@ def ResNet32(nclasses=100, nf=16, config={}):
     net = ResNet2(BasicBlock, [5, 5, 5], nclasses, nf, config=config)
     return net
 
-def ResNet110(nclasses=100, nf=16, config={}):
-	net = ResNet2(BasicBlock, [18, 18, 18], nclasses, nf, config=config)
-	return net
