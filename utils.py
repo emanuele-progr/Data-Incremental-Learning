@@ -14,6 +14,7 @@ from torch.utils.data import DataLoader
 import matplotlib.pyplot as plt
 from sklearn.decomposition import PCA
 from sklearn.preprocessing import StandardScaler
+from prettytable import PrettyTable
 
 
 TRIAL_ID = uuid.uuid4().hex.upper()[0:6]
@@ -432,3 +433,13 @@ def get_PCA_components(features):
     ax.grid()
     fig.savefig('prova.png')
 
+def count_parameters(model):
+	table = PrettyTable(["Modules", "Parameters"])
+	total_params = 0
+	for name, parameter in model.named_parameters():
+		if not parameter.requires_grad: continue
+		param = parameter.numel()
+		table.add_row([name, param])
+		total_params+=param
+	print(table)
+	print(f"Total trainable params : {total_params}")

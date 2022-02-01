@@ -54,7 +54,7 @@ def get_benchmark_model(args):
 		return MLP(args.hiddens, {'dropout': args.dropout}).to(DEVICE)
 	elif 'cifar100' in args.dataset:
 		TRAIN_CLASSES = 100
-		return ResNet32(config={'dropout': args.dropout}).to(DEVICE)
+		return ResNet18(config={'dropout': args.dropout}).to(DEVICE)
 	elif 'cifar10' in args.dataset:
 		TRAIN_CLASSES = 10
 		return ResNet32(nclasses = 10, config={'dropout': args.dropout}).to(DEVICE)
@@ -71,9 +71,11 @@ def get_benchmark_model(args):
 def run_experiment(args):
 	
 	#organize_validation_data_tiny_ImageNet()
+	acc_db, loss_db, hessian_eig_db = init_experiment(args)
 	tasks = get_benchmark_data_loader(args)(args.tasks, args.batch_size)
 	model = get_benchmark_model(args)
-	acc_db, loss_db, hessian_eig_db = init_experiment(args)
+	count_parameters(model)
+	
 
 
 	# criterion

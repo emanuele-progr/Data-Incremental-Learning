@@ -161,7 +161,7 @@ class ResNet2(nn.Module):
 		for param in self.parameters():
 			param.requires_grad = False
 
-def ResNet18(nclasses=100, nf=20, config={}):
+def ResNet18(nclasses=100, nf=64, config={}):
 	net = ResNet(BasicBlock, [2, 2, 2, 2], nclasses, nf, config=config)
 	return net
 
