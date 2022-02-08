@@ -78,6 +78,51 @@ class BasicBlock(nn.Module):
 		out = relu(out)
 		return out
 
+class Bottleneck(nn.Module):
+    expansion = 4
+
+    def __init__(self, in_planes, planes, stride=1, config={}):
+        super(Bottleneck, self).__init__()
+        self.conv1 = nn.Conv2d(in_planes, planes, kernel_size=1, bias=False)
+        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride, padding=1, bias=False)
+        self.conv3 = nn.Conv2d(planes, self.expansion *
+                               planes, kernel_size=1, bias=False)
+
+
+        self.shortcut = nn.Sequential()
+        if stride != 1 or in_planes != self.expansion*planes:
+            self.shortcut = nn.Sequential(
+                nn.Conv2d(in_planes, self.expansion*planes,
+                          kernel_size=1, stride=stride, bias=False),
+                nn.BatchNorm2d(self.expansion*planes)
+            )
+        self.IC1 = nn.Sequential(
+            nn.BatchNorm2d(planes),
+            nn.Dropout(p=config['dropout'])
+            )
+
+        self.IC2 = nn.Sequential(
+            nn.BatchNorm2d(planes),
+            nn.Dropout(p=config['dropout'])
+            )
+        self.IC3 = nn.Sequential(
+            nn.BatchNorm2d(self.expansion*planes),
+            nn.Dropout(p=config['dropout'])
+            )
+	
+
+    def forward(self, x):
+
+        out = self.conv1(x)
+        out = self.IC1(out)
+        out = relu(out)
+        out = self.conv2(out)
+        out = self.IC2(out)
+        out = self.conv3(out)
+        out = self.IC3(out)
+        out += self.shortcut(x)
+        out = relu(out)
+        return out
 
 class ResNet(nn.Module):
 	def __init__(self, block, num_blocks, num_classes, nf, config={}):
@@ -168,4 +213,8 @@ def ResNet18(nclasses=100, nf=64, config={}):
 def ResNet32(nclasses=100, nf=16, config={}):
     net = ResNet2(BasicBlock, [5, 5, 5], nclasses, nf, config=config)
     return net
+
+def ResNet50(nclasses=100, nf=64, config={}):
+	net = ResNet(Bottleneck, [3, 4, 6, 3], nclasses, nf, config=config)
+	return net
 

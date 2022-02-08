@@ -2,7 +2,6 @@ import numpy as np
 from sklearn.utils import shuffle
 import torch
 import torchvision
-import aug_lib
 import os
 import sys
 from torch.utils.data import random_split, ConcatDataset
@@ -282,17 +281,13 @@ def get_split_cifar100_tasks_with_augment(num_tasks, batch_size):
 
     # convention: tasks starts from 1 not 0 !
     # task_id = 1 (i.e., first task) => start_class = 0, end_class = 4
-    cifar_train_transforms = torchvision.transforms.Compose([torchvision.transforms.RandomHorizontalFlip(), torchvision.transforms.RandomCrop(32, padding=4,padding_mode="reflect"),torchvision.transforms.ToTensor(),])
+    cifar_train_transforms_with_aug = torchvision.transforms.Compose([torchvision.transforms.RandomHorizontalFlip(), torchvision.transforms.RandomCrop(32, padding=4,padding_mode="reflect"), torchvision.transforms.ColorJitter(brightness = 0.25, contrast= 0.25, saturation = 0.25, hue = 0.25), torchvision.transforms.ToTensor(),])
     cifar_test_transforms = torchvision.transforms.Compose(
        [torchvision.transforms.ToTensor(), ])
-    augment = torchvision.transforms.Compose(
-       [aug_lib.TrivialAugment(), torchvision.transforms.ToTensor(), ])
     cifar_train = torchvision.datasets.CIFAR100(
-       './data/', train=True, download=True, transform=cifar_train_transforms)
+       './data/', train=True, download=True, transform=cifar_train_transforms_with_aug)
     cifar_test = torchvision.datasets.CIFAR100(
        './data/', train=False, download=True, transform=cifar_test_transforms)
-    cifar_train_aug = torchvision.datasets.CIFAR100(
-       './data/', train=True, download=True, transform=augment)
 
     num_elements_train = len(cifar_train)/num_tasks
     num_elements_test = len(cifar_test)/2

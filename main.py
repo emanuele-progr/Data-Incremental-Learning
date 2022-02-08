@@ -9,7 +9,7 @@ import argparse
 import matplotlib.pyplot as plt
 import matplotlib.figure as figure
 from train import *
-from model import MLP, ResNet18, ResNet32
+from model import MLP, ResNet18, ResNet32, ResNet50
 from data_utils import *
 from utils import *
 from sklearn.metrics import confusion_matrix
