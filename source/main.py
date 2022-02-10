@@ -173,10 +173,10 @@ def run_experiment(args):
 					all_loss.append(metrics['loss'])
 					counter.append(epoch)
 			elif lwf == 1:
-				metrics = eval_single_epoch_fd(model, train_loader, criterion, old_model, current_task_id)
-				#metrics = eval_single_epoch_iCarl(model, train_loader, criterion, old_model, exemplar_means, current_task_id)
+				metrics = eval_single_epoch_fd(model, val_loader, criterion, old_model, current_task_id)
+				#metrics = eval_single_epoch_iCarl(model, val_loader, criterion, old_model, exemplar_means, current_task_id)
 			else:
-				metrics = eval_single_epoch(model, train_loader, criterion, current_task_id)			
+				metrics = eval_single_epoch(model, val_loader, criterion, current_task_id)			
 
 
 			acc_db, loss_db = log_metrics(metrics, time, current_task_id, acc_db, loss_db)
