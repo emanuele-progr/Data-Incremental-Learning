@@ -167,7 +167,7 @@ def run_experiment(args):
 			model = model.to(DEVICE)
 			val_loader = tasks[current_task_id]['val']
 			if ewc == 1:
-				metrics = eval_single_epoch_ewc(model, train_loader, criterion, fisher, old_params, current_task_id)
+				metrics = eval_single_epoch_ewc(model, val_loader, criterion, fisher, old_params, current_task_id)
 				if current_task_id > 1:
 					ewc_loss.append(metrics['ewcloss'])
 					all_loss.append(metrics['loss'])
@@ -237,7 +237,9 @@ def run_experiment(args):
 			if epoch == args.epochs_per_task:
 				#tune.report(val_loss= loss_db[current_task_id][epoch])
 				if trigger_times > 0:
-					model = backup_model.to(DEVICE)
+					model = get_benchmark_model(args)
+					model.load_state_dict(backup_model.state_dict())
+					model = model.to(DEVICE)
 					optimizer = type(backup_opt)(model.parameters(), lr=args.lr)
 					optimizer.load_state_dict(backup_opt.state_dict())
 				else:
