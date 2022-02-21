@@ -176,7 +176,7 @@ def eval_single_epoch_fd(net, loader, criterion, old_model, task_id=None):
 	net = net.to(DEVICE)
 	net.eval()
 	test_loss = 0
-	loss_penalty = torch.tensor(1.0)
+	loss_penalty = torch.tensor(0)
 	lwf_loss = 0
 	correct = 0
 	with torch.no_grad():

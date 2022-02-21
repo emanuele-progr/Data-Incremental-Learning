@@ -110,6 +110,9 @@ def run_experiment(args):
 		counter = []
 		if args.compute_joint_incremental:
 			model = get_benchmark_model(args)
+			with torch.no_grad():
+				model.linear.weight.data = torch.randn(model.linear.weight.data.size())*0.1
+				model.linear.bias.data = torch.zeros(model.linear.bias.data.size())
 #		with torch.no_grad():
 #			for name, param in model.named_parameters():
 #				if name == 'linear.weight':
