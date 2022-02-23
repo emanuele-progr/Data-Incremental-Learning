@@ -89,7 +89,58 @@ def train_single_epoch_fd(net, optimizer, loader, criterion, old_model, task_id=
 		loss = criterion(pred, target) + loss_penalty
 		loss.backward()
 		optimizer.step()
-	return net	
+	return net
+
+def train_single_epoch_lwf(net, optimizer, loader, criterion, old_model, task_id=None):
+	"""
+	Train the model for a single epoch
+	
+	:param net:
+	:param optimizer:
+	:param loader:
+	:param criterion:
+	:param task_id:
+	:return:
+	"""
+	net = net.to(DEVICE)
+	loss_penalty = 0
+	loss_penalty2 = 0
+	mask = 0
+	
+	net.train()
+	#old_model = copy.deepcopy(net)
+	#old_model.eval()
+	#old_model.freeze_all()
+
+	for batch_idx, (data, target) in enumerate(loader):
+
+		#print(list(old_model.parameters())[0])
+
+		data = data.to(DEVICE)
+		target = target.to(DEVICE)
+		optimizer.zero_grad()
+		if task_id:
+			pred, feat = net(data, task_id, return_features=True)
+		else:
+			pred, feat = net(data, return_features=True)
+		if task_id > 1 :
+			pred_old, feat_old = old_model(data, task_id, return_features=True)
+			#prediction_old = pred_old.data.max(1, keepdim=True)[1]
+			#print(pred_old.eq(target.data.view_as(pred_old))* pred)
+			#print(target * pred)
+			#mask = pred_old.eq(target.data.view_as(pred_old)).long()
+			loss_penalty = knowledge_distillation_penalty(pred, pred_old)
+		#loss_penalty2 = feature_distillation_penalty(feat, feat_old)
+			
+			
+			#loss_penalty = criterion(pred, pred_old)
+		loss = criterion(pred, target) + loss_penalty
+		print(loss_penalty)
+		
+		loss.backward()
+		#torch.nn.utils.clip_grad_norm_(net.parameters(), 10000)
+		optimizer.step()
+	return net		
 
 def train_single_epoch_iCarl(net, optimizer, loader, criterion, old_model, task_id=None):
 	"""
@@ -177,7 +228,7 @@ def eval_single_epoch_fd(net, loader, criterion, old_model, task_id=None):
 	net.eval()
 	test_loss = 0
 	loss_penalty = torch.tensor(0)
-	lwf_loss = 0
+	fd_loss = 0
 	correct = 0
 	with torch.no_grad():
 		for data, target in loader:
@@ -193,6 +244,45 @@ def eval_single_epoch_fd(net, loader, criterion, old_model, task_id=None):
 				loss_penalty = feature_distillation_penalty(feat, feat_old)
 
 			test_loss += (criterion(output, target).item() + loss_penalty.item()) * loader.batch_size
+			fd_loss += loss_penalty.item() * loader.batch_size
+			pred = output.data.max(1, keepdim=True)[1]
+			correct += pred.eq(target.data.view_as(pred)).sum()
+	test_loss /= len(loader.dataset)
+	fd_loss /= len(loader.dataset)
+	correct = correct.to('cpu')
+	avg_acc = 100.0 * float(correct.numpy()) / len(loader.dataset)
+	return {'accuracy': avg_acc, 'loss': test_loss, 'fd_loss': fd_loss}
+
+def eval_single_epoch_lwf(net, loader, criterion, old_model, task_id=None):
+	"""
+	Evaluate the model for single epoch
+	
+	:param net:
+	:param loader:
+	:param criterion:
+	:param task_id:
+	:return:
+	"""
+	net = net.to(DEVICE)
+	net.eval()
+	test_loss = 0
+	loss_penalty = torch.tensor(0)
+	lwf_loss = 0
+	correct = 0
+	with torch.no_grad():
+		for data, target in loader:
+			data = data.to(DEVICE)
+			target = target.to(DEVICE)
+			# for cifar head
+			if task_id is not None:
+				output, feat = net(data, task_id, return_features = True)
+			else:
+				output, feat = net(data, return_features = True)
+			if task_id > 1:
+				pred_old, feat_old = old_model(data, task_id, return_features=True) 
+				loss_penalty = knowledge_distillation_penalty(output, pred_old)
+
+			test_loss += (criterion(output, target).item() + loss_penalty.item()) * loader.batch_size
 			lwf_loss += loss_penalty.item() * loader.batch_size
 			pred = output.data.max(1, keepdim=True)[1]
 			correct += pred.eq(target.data.view_as(pred)).sum()
@@ -200,7 +290,7 @@ def eval_single_epoch_fd(net, loader, criterion, old_model, task_id=None):
 	lwf_loss /= len(loader.dataset)
 	correct = correct.to('cpu')
 	avg_acc = 100.0 * float(correct.numpy()) / len(loader.dataset)
-	return {'accuracy': avg_acc, 'loss': test_loss, 'fd_loss': lwf_loss}
+	return {'accuracy': avg_acc, 'loss': test_loss, 'lwf_loss': lwf_loss}
 
 def eval_single_epoch_ewc(net, loader, criterion, fisher, old_params, task_id=None):
 	"""
@@ -406,6 +496,14 @@ def feature_distillation_penalty(feat, feat_old):
 
 	return loss
 
+def knowledge_distillation_penalty(outputs, outputs_old):
+
+	lamb = 1
+	T = 2
+	loss = lamb * cross_entropy(outputs, outputs_old, exp = 1.0 / T)
+
+	return loss
+
 def icarl_penalty(out, out_old):
 
 	lamb = 1
@@ -434,3 +532,21 @@ def classify(features, targets, exemplar_means):
 	pred = dists.argmin(1)
 	hits_tag = (pred.to(DEVICE) == targets.to(DEVICE)).float()
 	return pred.to('cpu'), hits_tag
+
+def cross_entropy(outputs, targets, exp=1.0, size_average=True, eps=1e-5):
+	"""Calculates cross-entropy with temperature scaling"""
+	out = torch.nn.functional.softmax(outputs, dim=1)
+	tar = torch.nn.functional.softmax(targets, dim=1)
+	if exp != 1:
+		out = out.pow(exp)
+		out = out / out.sum(1).view(-1, 1).expand_as(out)
+		tar = tar.pow(exp)
+		tar = tar / tar.sum(1).view(-1, 1).expand_as(tar)
+	out = out + eps / out.size(1)
+	out = out / out.sum(1).view(-1, 1).expand_as(out)
+	ce = -(tar * out.log()).sum(1)
+	
+	
+	if size_average:
+		ce = ce.mean()
+	return ce
