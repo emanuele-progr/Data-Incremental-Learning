@@ -1,6 +1,6 @@
 import os
 import torch
-import copy
+import math
 import numpy as np
 import pandas as pd
 import seaborn as sns
@@ -110,9 +110,13 @@ def run_experiment(args):
 		counter = []
 		if args.compute_joint_incremental:
 			model = get_benchmark_model(args)
-			with torch.no_grad():
-				model.linear.weight.data = torch.randn(model.linear.weight.data.size())*0.1
-				model.linear.bias.data = torch.zeros(model.linear.bias.data.size())
+		with torch.no_grad():
+			#student-teacher random init
+			stdv = 1. / math.sqrt(model.linear.weight.size(1))
+			model.linear.weight.data.uniform_(-stdv, stdv)
+			model.linear.bias.data.uniform_(-stdv, stdv)			
+			#model.linear.weight.data = torch.randn(model.linear.weight.data.size())*0.1
+			#model.linear.bias.data = torch.zeros(model.linear.bias.data.size())
 #		with torch.no_grad():
 #			for name, param in model.named_parameters():
 #				if name == 'linear.weight':
