@@ -92,13 +92,21 @@ def end_experiment(args, acc_db, loss_db, hessian_eig_db):
 	print('------------------- Experiment ended -----------------')
 	
 
-def data_to_csv( acc_db, forgetting, task_counter):
+def data_to_csv( acc_db, forgetting, task_counter, lambda_value =None, alpha_value=None, beta_value=None):
 
 	acc = np.array(acc_db)
 	forg = np.array(forgetting)
-	print(task_counter)
+	#print(task_counter)
 	task = np.array(task_counter)
-	df = pd.DataFrame({"Task": task, "accuracy": acc, "forgetting": forg })
+	if lambda_value is not None:
+		lamb = np.array(lambda_value)
+		alp= np.array(alpha_value)
+		beta = np.array(beta_value)
+
+		df = pd.DataFrame({"Task": task, "accuracy": acc, "forgetting": forg , "lambda": lamb, "alpha": alp, "beta": beta})
+	else:
+		df = pd.DataFrame({"Task": task, "accuracy": acc, "forgetting": forg })
+		
 	df.to_csv(EXPERIMENT_DIRECTORY + '/RESULTS', sep= ';', index = False)
 
 

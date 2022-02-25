@@ -1,5 +1,6 @@
 import torch
 from utils import DEVICE
+import copy
 
 
 def train_single_epoch(net, optimizer, loader, criterion, task_id=None):
@@ -72,7 +73,7 @@ def train_single_epoch_fd(net, optimizer, loader, criterion, old_model, task_id=
 	:return:
 	"""
 	net = net.to(DEVICE)
-	loss_penalty = 1
+	loss_penalty = 0
 	
 	net.train()
 	for batch_idx, (data, target) in enumerate(loader):
@@ -84,14 +85,16 @@ def train_single_epoch_fd(net, optimizer, loader, criterion, old_model, task_id=
 		else:
 			pred, feat = net(data, return_features=True)
 		if task_id > 1:
-			pred_old, feat_old = old_model(data, task_id, return_features=True) 
+			pred_old, feat_old = old_model(data, task_id, return_features=True)
+			pred_old = pred_old.data.max(1, keepdim=True)[1]
+			#print(target.eq(pred_old.data.view_as(pred_old)).long())
 			loss_penalty = feature_distillation_penalty(feat, feat_old)
 		loss = criterion(pred, target) + loss_penalty
 		loss.backward()
 		optimizer.step()
 	return net
 
-def train_single_epoch_lwf(net, optimizer, loader, criterion, old_model, task_id=None):
+def train_single_epoch_lwf(net, optimizer, loader, criterion, old_model, task_id=None, config=None, index=None):
 	"""
 	Train the model for a single epoch
 	
@@ -125,22 +128,79 @@ def train_single_epoch_lwf(net, optimizer, loader, criterion, old_model, task_id
 			pred, feat = net(data, return_features=True)
 		if task_id > 1 :
 			pred_old, feat_old = old_model(data, task_id, return_features=True)
-			#prediction_old = pred_old.data.max(1, keepdim=True)[1]
+			prediction_old = pred_old.data.max(1, keepdim=True)[1]
 			#print(pred_old.eq(target.data.view_as(pred_old))* pred)
 			#print(target * pred)
-			#mask = pred_old.eq(target.data.view_as(pred_old)).long()
+			#mask = target.eq(prediction_old.data.view_as(target)).long()
+			mask = prediction_old.eq(target.data.view_as(prediction_old)).long()
+
 			loss_penalty = knowledge_distillation_penalty(pred, pred_old)
+			#loss_penalty = focal_distillation_penalty(pred, pred_old, mask, config, index)
 		#loss_penalty2 = feature_distillation_penalty(feat, feat_old)
 			
 			
 			#loss_penalty = criterion(pred, pred_old)
 		loss = criterion(pred, target) + loss_penalty
-		print(loss_penalty)
+		#print(loss_penalty)
 		
 		loss.backward()
 		#torch.nn.utils.clip_grad_norm_(net.parameters(), 10000)
 		optimizer.step()
-	return net		
+	return net
+
+def train_single_epoch_focal(net, optimizer, loader, criterion, old_model, task_id=None, config=None, index=None):
+	"""
+	Train the model for a single epoch
+	
+	:param net:
+	:param optimizer:
+	:param loader:
+	:param criterion:
+	:param task_id:
+	:return:
+	"""
+	net = net.to(DEVICE)
+	loss_penalty = 0
+	loss_penalty2 = 0
+	mask = 0
+	
+	net.train()
+	#old_model = copy.deepcopy(net)
+	#old_model.eval()
+	#old_model.freeze_all()
+
+	for batch_idx, (data, target) in enumerate(loader):
+
+		#print(list(old_model.parameters())[0])
+
+		data = data.to(DEVICE)
+		target = target.to(DEVICE)
+		optimizer.zero_grad()
+		if task_id:
+			pred, feat = net(data, task_id, return_features=True)
+		else:
+			pred, feat = net(data, return_features=True)
+		if task_id > 1 :
+			pred_old, feat_old = old_model(data, task_id, return_features=True)
+			prediction_old = pred_old.data.max(1, keepdim=True)[1]
+			#print(pred_old.eq(target.data.view_as(pred_old))* pred)
+			#print(target * pred)
+			#mask = target.eq(prediction_old.data.view_as(target)).long()
+			mask = prediction_old.eq(target.data.view_as(prediction_old)).long()
+
+			#loss_penalty = knowledge_distillation_penalty(pred, pred_old)
+			loss_penalty = focal_distillation_penalty(pred, pred_old, mask, config, index)
+		#loss_penalty2 = feature_distillation_penalty(feat, feat_old)
+			
+			
+			#loss_penalty = criterion(pred, pred_old)
+		loss = criterion(pred, target) + loss_penalty
+		#print(loss_penalty)
+		
+		loss.backward()
+		#torch.nn.utils.clip_grad_norm_(net.parameters(), 10000)
+		optimizer.step()
+	return net	
 
 def train_single_epoch_iCarl(net, optimizer, loader, criterion, old_model, task_id=None):
 	"""
@@ -253,7 +313,7 @@ def eval_single_epoch_fd(net, loader, criterion, old_model, task_id=None):
 	avg_acc = 100.0 * float(correct.numpy()) / len(loader.dataset)
 	return {'accuracy': avg_acc, 'loss': test_loss, 'fd_loss': fd_loss}
 
-def eval_single_epoch_lwf(net, loader, criterion, old_model, task_id=None):
+def eval_single_epoch_lwf(net, loader, criterion, old_model, task_id=None, config=None, index=None):
 	"""
 	Evaluate the model for single epoch
 	
@@ -291,6 +351,47 @@ def eval_single_epoch_lwf(net, loader, criterion, old_model, task_id=None):
 	correct = correct.to('cpu')
 	avg_acc = 100.0 * float(correct.numpy()) / len(loader.dataset)
 	return {'accuracy': avg_acc, 'loss': test_loss, 'lwf_loss': lwf_loss}
+
+def eval_single_epoch_focal(net, loader, criterion, old_model, task_id=None, config=None, index=None):
+	"""
+	Evaluate the model for single epoch
+	
+	:param net:
+	:param loader:
+	:param criterion:
+	:param task_id:
+	:return:
+	"""
+	net = net.to(DEVICE)
+	net.eval()
+	test_loss = 0
+	loss_penalty = torch.tensor(0)
+	focal_loss = 0
+	correct = 0
+	with torch.no_grad():
+		for data, target in loader:
+			data = data.to(DEVICE)
+			target = target.to(DEVICE)
+			# for cifar head
+			if task_id is not None:
+				output, feat = net(data, task_id, return_features = True)
+			else:
+				output, feat = net(data, return_features = True)
+			if task_id > 1:
+				pred_old, feat_old = old_model(data, task_id, return_features=True)
+				prediction_old = pred_old.data.max(1, keepdim=True)[1]
+				mask = prediction_old.eq(target.data.view_as(prediction_old)).long()
+				loss_penalty = focal_distillation_penalty(output, pred_old, mask, config, index)
+
+			test_loss += (criterion(output, target).item() + loss_penalty.item()) * loader.batch_size
+			focal_loss += loss_penalty.item() * loader.batch_size
+			pred = output.data.max(1, keepdim=True)[1]
+			correct += pred.eq(target.data.view_as(pred)).sum()
+	test_loss /= len(loader.dataset)
+	focal_loss /= len(loader.dataset)
+	correct = correct.to('cpu')
+	avg_acc = 100.0 * float(correct.numpy()) / len(loader.dataset)
+	return {'accuracy': avg_acc, 'loss': test_loss, 'focal_loss': focal_loss}
 
 def eval_single_epoch_ewc(net, loader, criterion, fisher, old_params, task_id=None):
 	"""
@@ -490,8 +591,7 @@ def ewc_penalty(model, fisher, older_params):
 	return loss
 
 def feature_distillation_penalty(feat, feat_old):
-
-	lamb = 1
+	lamb = 0.1
 	loss = lamb * torch.mean(torch.norm(feat - feat_old, p=2, dim=1))
 
 	return loss
@@ -503,6 +603,22 @@ def knowledge_distillation_penalty(outputs, outputs_old):
 	loss = lamb * cross_entropy(outputs, outputs_old, exp = 1.0 / T)
 
 	return loss
+
+def focal_distillation_penalty(outputs, outputs_old, mask, config, index):
+	if config is not None:
+		lamb = config["lambda"][index]
+		beta = config["beta"][index]
+		alpha = config["alpha"][index]
+
+	else:
+		lamb = 1
+		alpha = 1
+		beta = 1
+	T = 2
+	loss = lamb * focal_distillation_cross_entropy(outputs, outputs_old, exp = 1.0 / T, beta = beta, alpha= alpha, mask = mask)
+
+	return loss
+
 
 def icarl_penalty(out, out_old):
 
@@ -532,6 +648,35 @@ def classify(features, targets, exemplar_means):
 	pred = dists.argmin(1)
 	hits_tag = (pred.to(DEVICE) == targets.to(DEVICE)).float()
 	return pred.to('cpu'), hits_tag
+
+
+
+
+
+def focal_distillation_cross_entropy(outputs, targets, exp=1.0, size_average=True, eps=1e-5, alpha=1, beta=0, mask=None):
+	"""Calculates cross-entropy with temperature scaling"""
+	focal_ce = torch.tensor(0.0)
+	out = torch.nn.functional.softmax(outputs, dim=1)
+	tar = torch.nn.functional.softmax(targets, dim=1)
+	if exp != 1:
+		out = out.pow(exp)
+		out = out / out.sum(1).view(-1, 1).expand_as(out)
+		tar = tar.pow(exp)
+		tar = tar / tar.sum(1).view(-1, 1).expand_as(tar)
+	out = out + eps / out.size(1)
+	out = out / out.sum(1).view(-1, 1).expand_as(out)
+	ce = - alpha * (tar * out.log()).sum(1)
+	if mask is not None :
+		if beta != 0:
+			focal_ce = - (beta * (mask * (tar * out.log()))).sum(1)
+			if len(focal_ce[focal_ce.nonzero()]) != 0:
+				focal_ce = focal_ce[focal_ce.nonzero()].mean()
+			else:
+				focal_ce = torch.tensor(0.0)
+		
+	if size_average:
+		ce = ce.mean() + focal_ce
+	return ce
 
 def cross_entropy(outputs, targets, exp=1.0, size_average=True, eps=1e-5):
 	"""Calculates cross-entropy with temperature scaling"""
