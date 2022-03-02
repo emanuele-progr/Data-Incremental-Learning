@@ -18,7 +18,7 @@ class MLP(nn.Module):
 		
 		self.W3 = nn.Linear(hiddens, 10)
 
-	def forward(self, x, task_id=None, return_features = False):
+	def forward(self, x, return_features = False):
 		x = x.view(-1, 784)
 		out = self.W1(x)
 		out = self.relu(out)
@@ -145,7 +145,7 @@ class ResNet(nn.Module):
 			self.in_planes = planes * block.expansion
 		return nn.Sequential(*layers)
 
-	def forward(self, x, task_id, return_features = False):
+	def forward(self, x, return_features = False):
 		bsz = x.size(0)
 		out = relu(self.bn1(self.conv1(x.view(bsz, 3, 32, 32))))
 		out = self.layer1(out)
@@ -187,7 +187,7 @@ class ResNet2(nn.Module):
 			self.in_planes = planes * block.expansion
 		return nn.Sequential(*layers)
 
-	def forward(self, x, task_id, return_features=False):
+	def forward(self, x, return_features=False):
 		bsz = x.size(0)
 		out = relu(self.bn1(self.conv1(x.view(bsz, 3, 32, 32))))
 		out = self.layer1(out)
@@ -217,4 +217,3 @@ def ResNet32(nclasses=100, nf=16, config={}):
 def ResNet50(nclasses=100, nf=64, config={}):
 	net = ResNet(Bottleneck, [3, 4, 6, 3], nclasses, nf, config=config)
 	return net
-

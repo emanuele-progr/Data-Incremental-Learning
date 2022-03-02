@@ -1,6 +1,5 @@
 import torch
 from utils import DEVICE
-import copy
 
 
 def train_single_epoch(net, optimizer, loader, criterion, task_id=None):
@@ -21,10 +20,7 @@ def train_single_epoch(net, optimizer, loader, criterion, task_id=None):
 		data = data.to(DEVICE)
 		target = target.to(DEVICE)
 		optimizer.zero_grad()
-		if task_id:
-			pred = net(data, task_id)
-		else:
-			pred = net(data)
+		pred = net(data)
 		loss = criterion(pred, target)
 		loss.backward()
 		optimizer.step()
@@ -49,10 +45,7 @@ def train_single_epoch_ewc(net, optimizer, loader, criterion, old_params, fisher
 		data = data.to(DEVICE)
 		target = target.to(DEVICE)
 		optimizer.zero_grad()
-		if task_id:
-			pred= net(data, task_id)
-		else:
-			pred = net(data)
+		pred = net(data)
 		if task_id > 1:
 			loss_penalty = ewc_penalty(net, fisher, old_params)
 		loss = criterion(pred, target) + loss_penalty
@@ -80,14 +73,9 @@ def train_single_epoch_fd(net, optimizer, loader, criterion, old_model, task_id=
 		data = data.to(DEVICE)
 		target = target.to(DEVICE)
 		optimizer.zero_grad()
-		if task_id:
-			pred, feat = net(data, task_id, return_features=True)
-		else:
-			pred, feat = net(data, return_features=True)
+		pred, feat = net(data, return_features=True)
 		if task_id > 1:
-			pred_old, feat_old = old_model(data, task_id, return_features=True)
-			pred_old = pred_old.data.max(1, keepdim=True)[1]
-			#print(target.eq(pred_old.data.view_as(pred_old)).long())
+			pred_old, feat_old = old_model(data, return_features=True)
 			loss_penalty = feature_distillation_penalty(feat, feat_old)
 		loss = criterion(pred, target) + loss_penalty
 		loss.backward()
@@ -107,44 +95,22 @@ def train_single_epoch_lwf(net, optimizer, loader, criterion, old_model, task_id
 	"""
 	net = net.to(DEVICE)
 	loss_penalty = 0
-	loss_penalty2 = 0
-	mask = 0
 	
 	net.train()
-	#old_model = copy.deepcopy(net)
-	#old_model.eval()
-	#old_model.freeze_all()
 
 	for batch_idx, (data, target) in enumerate(loader):
-
-		#print(list(old_model.parameters())[0])
 
 		data = data.to(DEVICE)
 		target = target.to(DEVICE)
 		optimizer.zero_grad()
-		if task_id:
-			pred, feat = net(data, task_id, return_features=True)
-		else:
-			pred, feat = net(data, return_features=True)
+		pred = net(data)
 		if task_id > 1 :
-			pred_old, feat_old = old_model(data, task_id, return_features=True)
-			prediction_old = pred_old.data.max(1, keepdim=True)[1]
-			#print(pred_old.eq(target.data.view_as(pred_old))* pred)
-			#print(target * pred)
-			#mask = target.eq(prediction_old.data.view_as(target)).long()
-			mask = prediction_old.eq(target.data.view_as(prediction_old)).long()
+			pred_old = old_model(data)
+			loss_penalty = knowledge_distillation_penalty(pred, pred_old, config, index)
 
-			loss_penalty = knowledge_distillation_penalty(pred, pred_old)
-			#loss_penalty = focal_distillation_penalty(pred, pred_old, mask, config, index)
-		#loss_penalty2 = feature_distillation_penalty(feat, feat_old)
-			
-			
-			#loss_penalty = criterion(pred, pred_old)
 		loss = criterion(pred, target) + loss_penalty
-		#print(loss_penalty)
 		
 		loss.backward()
-		#torch.nn.utils.clip_grad_norm_(net.parameters(), 10000)
 		optimizer.step()
 	return net
 
@@ -161,44 +127,24 @@ def train_single_epoch_focal(net, optimizer, loader, criterion, old_model, task_
 	"""
 	net = net.to(DEVICE)
 	loss_penalty = 0
-	loss_penalty2 = 0
 	mask = 0
 	
 	net.train()
-	#old_model = copy.deepcopy(net)
-	#old_model.eval()
-	#old_model.freeze_all()
 
 	for batch_idx, (data, target) in enumerate(loader):
-
-		#print(list(old_model.parameters())[0])
 
 		data = data.to(DEVICE)
 		target = target.to(DEVICE)
 		optimizer.zero_grad()
-		if task_id:
-			pred, feat = net(data, task_id, return_features=True)
-		else:
-			pred, feat = net(data, return_features=True)
+		pred = net(data)
 		if task_id > 1 :
-			pred_old, feat_old = old_model(data, task_id, return_features=True)
+			pred_old = old_model(data)
 			prediction_old = pred_old.data.max(1, keepdim=True)[1]
-			#print(pred_old.eq(target.data.view_as(pred_old))* pred)
-			#print(target * pred)
-			#mask = target.eq(prediction_old.data.view_as(target)).long()
 			mask = prediction_old.eq(target.data.view_as(prediction_old)).long()
-
-			#loss_penalty = knowledge_distillation_penalty(pred, pred_old)
 			loss_penalty = focal_distillation_penalty(pred, pred_old, mask, config, index)
-		#loss_penalty2 = feature_distillation_penalty(feat, feat_old)
-			
-			
-			#loss_penalty = criterion(pred, pred_old)
+
 		loss = criterion(pred, target) + loss_penalty
-		#print(loss_penalty)
-		
 		loss.backward()
-		#torch.nn.utils.clip_grad_norm_(net.parameters(), 10000)
 		optimizer.step()
 	return net	
 
@@ -224,12 +170,10 @@ def train_single_epoch_iCarl(net, optimizer, loader, criterion, old_model, task_
 		data = data.to(DEVICE)
 		target = target.to(DEVICE)
 		optimizer.zero_grad()
-		if task_id:
-			pred, feat = net(data, task_id, return_features=True)
-		else:
-			pred, feat = net(data, return_features=True)
+
+		pred, feat = net(data, return_features=True)
 		if task_id > 1:
-			pred_old, feat_old = old_model(data, task_id, return_features=True)
+			pred_old, feat_old = old_model(data, return_features=True)
 			outputs.append(pred)
 			outputs_old.append(pred_old)
 			loss_penalty = feature_distillation_penalty(feat, feat_old)
@@ -261,11 +205,8 @@ def eval_single_epoch(net, loader, criterion, task_id=None):
 		for data, target in loader:
 			data = data.to(DEVICE)
 			target = target.to(DEVICE)
-			# for cifar head
-			if task_id is not None:
-				output = net(data, task_id)
-			else:
-				output = net(data)
+
+			output = net(data)
 			test_loss += criterion(output, target).item() * loader.batch_size
 			pred = output.data.max(1, keepdim=True)[1]
 			correct += pred.eq(target.data.view_as(pred)).sum()
@@ -294,13 +235,9 @@ def eval_single_epoch_fd(net, loader, criterion, old_model, task_id=None):
 		for data, target in loader:
 			data = data.to(DEVICE)
 			target = target.to(DEVICE)
-			# for cifar head
-			if task_id is not None:
-				output, feat = net(data, task_id, return_features = True)
-			else:
-				output, feat = net(data, return_features = True)
+			output, feat = net(data, return_features = True)
 			if task_id > 1:
-				pred_old, feat_old = old_model(data, task_id, return_features=True) 
+				pred_old, feat_old = old_model(data, return_features=True) 
 				loss_penalty = feature_distillation_penalty(feat, feat_old)
 
 			test_loss += (criterion(output, target).item() + loss_penalty.item()) * loader.batch_size
@@ -333,14 +270,10 @@ def eval_single_epoch_lwf(net, loader, criterion, old_model, task_id=None, confi
 		for data, target in loader:
 			data = data.to(DEVICE)
 			target = target.to(DEVICE)
-			# for cifar head
-			if task_id is not None:
-				output, feat = net(data, task_id, return_features = True)
-			else:
-				output, feat = net(data, return_features = True)
+			output = net(data)
 			if task_id > 1:
-				pred_old, feat_old = old_model(data, task_id, return_features=True) 
-				loss_penalty = knowledge_distillation_penalty(output, pred_old)
+				pred_old = old_model(data) 
+				loss_penalty = knowledge_distillation_penalty(output, pred_old, config, index)
 
 			test_loss += (criterion(output, target).item() + loss_penalty.item()) * loader.batch_size
 			lwf_loss += loss_penalty.item() * loader.batch_size
@@ -372,13 +305,9 @@ def eval_single_epoch_focal(net, loader, criterion, old_model, task_id=None, con
 		for data, target in loader:
 			data = data.to(DEVICE)
 			target = target.to(DEVICE)
-			# for cifar head
-			if task_id is not None:
-				output, feat = net(data, task_id, return_features = True)
-			else:
-				output, feat = net(data, return_features = True)
+			output = net(data)
 			if task_id > 1:
-				pred_old, feat_old = old_model(data, task_id, return_features=True)
+				pred_old = old_model(data)
 				prediction_old = pred_old.data.max(1, keepdim=True)[1]
 				mask = prediction_old.eq(target.data.view_as(prediction_old)).long()
 				loss_penalty = focal_distillation_penalty(output, pred_old, mask, config, index)
@@ -419,11 +348,7 @@ def eval_single_epoch_ewc(net, loader, criterion, fisher, old_params, task_id=No
 		for data, target in loader:
 			data = data.to(DEVICE)
 			target = target.to(DEVICE)
-			# for cifar head
-			if task_id is not None:
-				output = net(data, task_id)
-			else:
-				output = net(data)
+			output = net(data)
 			test_loss += (criterion(output, target).item() + loss_penalty.item()) * loader.batch_size
 			ewc_loss += loss_penalty.item() * loader.batch_size
 			pred = output.data.max(1, keepdim=True)[1]
@@ -461,12 +386,11 @@ def eval_single_epoch_iCarl(net, loader, criterion, old_model, exemplar_means, t
 		for data, target in loader:
 			data = data.to(DEVICE)
 			target = target.to(DEVICE)
-			# for cifar head
-			output, feat = net(data, task_id, return_features = True)
+			output, feat = net(data, return_features = True)
 			
 			if task_id > 1:
 				_, hits = classify(feat, target, exemplar_means)
-				pred_old, feat_old = old_model(data, task_id, return_features=True) 
+				pred_old, feat_old = old_model(data, return_features=True) 
 				loss_penalty = feature_distillation_penalty(feat, feat_old)
 				outputs.append(output)
 				outputs_old.append(pred_old)
@@ -517,11 +441,7 @@ def final_eval(net, loader, criterion, task_id=None):
         for data, target in loader:
             data = data.to(DEVICE)
             target = target.to(DEVICE)
-            # for cifar head
-            if task_id is not None:
-                output = net(data, task_id)
-            else:
-                output = net(data)
+            output = net(data)
             test_loss += criterion(output, target).item() * loader.batch_size
             pred = output.data.max(1, keepdim=True)[1]
             Y.append(pred.view_as(target.data).cpu().numpy().tolist())
@@ -556,11 +476,8 @@ def final_eval_iCarl(net, loader, criterion, exemplar_means, task_id=None):
         for data, target in loader:
             data = data.to(DEVICE)
             target = target.to(DEVICE)
-            # for cifar head
-            if task_id is not None:
-                output, feat = net(data, task_id, return_features = True)
-            else:
-                output = net(data)
+            output, feat = net(data, return_features = True)
+ 
             pred_icarl, hits = classify(feat, target, exemplar_means)
             total_acc += hits.sum().item()
             total_num += len(target)
@@ -596,9 +513,12 @@ def feature_distillation_penalty(feat, feat_old):
 
 	return loss
 
-def knowledge_distillation_penalty(outputs, outputs_old):
+def knowledge_distillation_penalty(outputs, outputs_old, config, index):
 
-	lamb = 1
+	if config is not None:
+		lamb = config["lambda"][index]
+	else:	
+		lamb = 1
 	T = 2
 	loss = lamb * cross_entropy(outputs, outputs_old, exp = 1.0 / T)
 
@@ -613,11 +533,12 @@ def focal_distillation_penalty(outputs, outputs_old, mask, config, index):
 	else:
 		lamb = 1
 		alpha = 1
-		beta = 1
+		beta = 5
 	T = 2
 	loss = lamb * focal_distillation_cross_entropy(outputs, outputs_old, exp = 1.0 / T, beta = beta, alpha= alpha, mask = mask)
 
 	return loss
+
 
 
 def icarl_penalty(out, out_old):

@@ -19,12 +19,13 @@ from prettytable import PrettyTable
 
 TRIAL_ID = uuid.uuid4().hex.upper()[0:6]
 EXPERIMENT_DIRECTORY = './outputs/{}'.format(TRIAL_ID)
-DEVICE = 'cuda' if torch.cuda.is_available() else 'cpu'
+DEVICE = "cuda:1" if torch.cuda.is_available() else 'cpu'
 SEED = 123
 
 
 def parse_arguments():
 	parser = argparse.ArgumentParser(description='Argument parser')
+	parser.add_argument('--grid_search', action='store_true', dest='grid_search')
 	parser.add_argument('--tasks', default=5, type=int, help='total number of tasks')
 	parser.add_argument('--epochs-per-task', default=1, type=int, help='epochs per task')
 	parser.add_argument('--dataset', default='cifar100', type=str, help='dataset. options: mnist, cifar10, cifar100, imagenet')
@@ -36,7 +37,7 @@ def parse_arguments():
 	parser.add_argument('--hiddens', default=256, type=int, help='num of hidden neurons in each layer of a 2-layer MLP')
 	parser.add_argument('--compute-eigenspectrum', default=False, type=bool, help='compute eigenvalues/eigenvectors?')
 	parser.add_argument('--seed', default=1234, type=int, help='random seed')
-	parser.add_argument('--compute-joint-incremental', default=False, type=bool, help='compute joint incremental?')
+	parser.add_argument('--compute_joint_incremental', action='store_true', dest='compute_joint_incremental', help='compute joint incremental?')
 
 	args = parser.parse_args()
 	return args
@@ -106,7 +107,7 @@ def data_to_csv( acc_db, forgetting, task_counter, lambda_value =None, alpha_val
 		df = pd.DataFrame({"Task": task, "accuracy": acc, "forgetting": forg , "lambda": lamb, "alpha": alp, "beta": beta})
 	else:
 		df = pd.DataFrame({"Task": task, "accuracy": acc, "forgetting": forg })
-		
+
 	df.to_csv(EXPERIMENT_DIRECTORY + '/RESULTS', sep= ';', index = False)
 
 
@@ -152,12 +153,7 @@ def compute_fisher_matrix_diag(train_loader, model, optimizer, current_task_id, 
 	for batch_idx, (data, target) in enumerate(train_loader):
 		data = data.to(DEVICE)
 		target = target.to(DEVICE)
-		# for cifar head
-		if current_task_id is not None:
-			output = model(data, current_task_id)
-		else:
-			output = model(data)
-		#loss = criterion(output, target)
+		output = model(data)
 		loss = criterion(output, target)
 			
 		optimizer.zero_grad()
@@ -212,7 +208,7 @@ def herdingExemplarsSelector(model, loader, task_id, num_exemplars):
 		for data, target in loader:
 			data = data.to(DEVICE)
 			target = target.to('cpu')
-			_, feat = model(data, task_id, return_features=True)
+			_, feat = model(data, return_features=True)
 			feat = feat / feat.norm(dim=1).view(-1, 1)
 			extracted_features.append(feat)
 			extracted_targets.extend(target)
@@ -283,7 +279,7 @@ def entropyExemplarsSelector(model, loader, task_id,  num_exemplars):
 	with torch.no_grad():
 		model.eval()
 		for images, targets in loader:
-			extracted_logits.append(model(images.to(DEVICE), task_id))
+			extracted_logits.append(model(images.to(DEVICE)))
 			extracted_targets.extend(targets)
 		extracted_logits = (torch.cat(extracted_logits)).cpu()
 		extracted_targets = np.array(extracted_targets)
@@ -312,7 +308,7 @@ def distanceExemplarsSelector(model, loader, task_id, num_exemplars):
 	with torch.no_grad():
 		model.eval()
 		for images, targets in loader:
-			extracted_logits.append(model(images.to(DEVICE), task_id))
+			extracted_logits.append(model(images.to(DEVICE)))
 			extracted_targets.extend(targets)
 
 		extracted_logits = (torch.cat(extracted_logits)).cpu()
@@ -343,7 +339,7 @@ def compute_mean_of_exemplars(model, exemplars_loader, task_id):
 		model.eval()
 		for images, targets in exemplars_loader:
 			targets.to('cpu')
-			_, feats = model(images.to(DEVICE), task_id, return_features=True)
+			_, feats = model(images.to(DEVICE), return_features=True)
 			# normalize
 			extracted_features.append(feats / feats.norm(dim=1).view(-1, 1))
 			extracted_targets.extend(targets)

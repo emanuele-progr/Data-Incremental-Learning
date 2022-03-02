@@ -105,14 +105,14 @@ def run_experiment(args):
         counter = []
         if args.compute_joint_incremental:
             model = get_benchmark_model(args)
-        # if current_task_id > 1:
-            # with torch.no_grad():
+        #if current_task_id > 1:
+            #with torch.no_grad():
             #model.linear.weight.data = torch.randn(model.linear.weight.data.size())*0.1
             #model.linear.bias.data = torch.randn(model.linear.bias.data.size())*0.1
             # student-teacher random init
-            #stdv = 1. / math.sqrt(model.linear.weight.size(1))
-            #model.linear.weight.data.uniform_(-stdv, stdv)
-            #model.linear.bias.data.uniform_(-stdv, stdv)
+                #stdv = 1. / math.sqrt(model.linear.weight.size(1))
+                #model.linear.weight.data.uniform_(-stdv, stdv)
+                #model.linear.bias.data.uniform_(-stdv, stdv)
 
 
 #		print(model.linear.weight.data)
@@ -540,13 +540,20 @@ def save_checkpoint_Adam(model, optimizer):
 
 config = {
 
-    "lambda": [1, 1, 1, 1, 1, 1, 1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 00.1, 00.1, 00.1, 00.1, 00.1, 00.1, 00.1],
-    "alpha": [0, 1, 1, 1, 1, 1, 1, 0, 1, 1, 1, 1, 1, 1,  0, 1, 1, 1, 1, 1, 1],
-    "beta": [1, 0, 1, 2, 5, 10, 20, 1, 0, 1, 2, 5, 10, 20,  1, 0, 1, 2, 5, 10, 20  ]
+    "lambda": [1, 1, 1, 1, 1, 1, 1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 10, 10, 10, 10, 10, 10, 10],
+    "alpha": [0, 1, 1, 1, 1, 1, 1, 0, 1, 1, 1, 1, 1, 1, 0, 1, 1, 1, 1, 1, 1 ],
+    "beta": [1, 0, 1, 2, 5, 10, 20, 1, 0, 1, 2, 5, 10, 20, 1, 0, 1, 2, 5, 10, 20]
+
+    #"lambda": [0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1],
+    #"alpha": [0, 1, 1, 1, 1, 1, 1],
+    #"beta": [1, 0, 1, 2, 5, 10, 20]
+
+    #"lambda": [0.001, 0.01, 0.1, 1, 10, 100, 1000]
+
 }
 
 
-def tuning(args):
+def tuning_on_task2(args):
 
     # organize_validation_data_tiny_ImageNet()
     acc_db, loss_db, hessian_eig_db = init_experiment(args)
@@ -574,10 +581,6 @@ def tuning(args):
     task_counter = []
     exemplar_means = []
     mean_vector = []
-    #lr = [0.01, 0.001, 0.001, 0.001, 0.0001, 0.0001, 0.0001, 0.0001, 0.0001, 0.0001]
-    lr = [0.001, 0.0001, 0.0001, 0.0001, 0.0001,
-          0.00001, 0.00001, 0.00001, 0.00001, 0.00001]
-    #lr = [0.001, 0.0001, 0.0001, 0.00001, 0.00001]
 
     fisher = {n: torch.zeros(p.shape).to(DEVICE)
               for n, p in model.named_parameters() if p.requires_grad}
@@ -591,14 +594,14 @@ def tuning(args):
         counter = []
         if args.compute_joint_incremental:
             model = get_benchmark_model(args)
-        # if current_task_id > 1:
-            # with torch.no_grad():
+        #if current_task_id > 1:
+            #with torch.no_grad():
             #model.linear.weight.data = torch.randn(model.linear.weight.data.size())*0.1
             #model.linear.bias.data = torch.randn(model.linear.bias.data.size())*0.1
             # student-teacher random init
-            #stdv = 1. / math.sqrt(model.linear.weight.size(1))
-            #model.linear.weight.data.uniform_(-stdv, stdv)
-            #model.linear.bias.data.uniform_(-stdv, stdv)
+                #stdv = 1. / math.sqrt(model.linear.weight.size(1))
+                #model.linear.weight.data.uniform_(-stdv, stdv)
+                #model.linear.bias.data.uniform_(-stdv, stdv)
 
 
 #		print(model.linear.weight.data)
@@ -629,11 +632,10 @@ def tuning(args):
                 accumulator, batch_size=args.batch_size, shuffle=True)
             print(len(train_loader.dataset))
             #exemplar_means = compute_mean_of_exemplars(model,torch.utils.data.DataLoader(exemplar_dataset, batch_size=args.batch_size) , current_task_id)
-        if (check == 1):
-            model, optimizer = load_checkpoint(model, optimizer, 'check.pth')
 
         exemplar_loader = tasks[current_task_id]['exemplar']
         if current_task_id == 1:
+			# first task, standard training
             for epoch in range(1, args.epochs_per_task+1):
                 # 1. train and save
 
@@ -645,7 +647,7 @@ def tuning(args):
                     train_single_epoch_ewc(
                         model, optimizer, train_loader, criterion, old_params, fisher, current_task_id)
                 elif lwf == 1:
-                    train_single_epoch_lwf(
+                    train_single_epoch_focal(
                         model, optimizer, train_loader, criterion, old_model, current_task_id)
                     #train_single_epoch_iCarl(model, optimizer, train_loader, criterion, old_model, current_task_id)
                 else:
@@ -662,7 +664,7 @@ def tuning(args):
                         all_loss.append(metrics['loss'])
                         # counter.append(epoch)
                 elif lwf == 1:
-                    metrics = eval_single_epoch_lwf(
+                    metrics = eval_single_epoch_focal(
                         model, val_loader, criterion, old_model, current_task_id)
                     #metrics = eval_single_epoch_iCarl(model, val_loader, criterion, old_model, exemplar_means, current_task_id)
                 else:
@@ -698,20 +700,13 @@ def tuning(args):
                     pred_vector = make_prediction_vector(X, Y)
                     print(forgetting_metric(pred_vector,
                                             pred_vector_list, current_task_id))
-                    # accuracy_results.append(metrics['accuracy'])
-                    # forgetting_result.append(forgetting_metric(
-                    #    pred_vector, pred_vector_list, current_task_id))
-                    # task_counter.append(current_task_id)
                     pred_vector_list.append(pred_vector)
                     fisher = post_train_process_ewc(
                         train_loader, model, optimizer, current_task_id, fisher)
                     old_model = post_train_process_fd(model)
                     res = randomExemplarsSelector(
                         model, exemplar_loader, current_task_id, exemplars_per_class, TRAIN_CLASSES)
-                    #selected_exemplar = torch.utils.data.Subset(exemplar_loader.dataset, res)
-                    #exemplars_vector_list = []
                     exemplars_vector_list.append(res)
-                    # print(len(selected_exemplar))
                     matrix = confusion_matrix(X, Y)
                     # plot_conf_matrix(matrix)
                     acc_db, loss_db = log_metrics(
@@ -720,21 +715,11 @@ def tuning(args):
                     time = 0
                     trigger_times = 0
                     the_last_loss = 100
-                    if current_task_id > 1:
-                        e_loss = np.array(ewc_loss)
-                        a_loss = np.array(all_loss)
-                        epochs = np.array(counter)
-                        df = pd.DataFrame(
-                            {"Item Name": epochs, "loss": a_loss, "ewc_loss": e_loss})
-                        string = 'prova{}.csv'.format(current_task_id)
-                        df.to_csv(string, sep=';', index=False)
-                    break
 
                 if loss_db[current_task_id][epoch-1] < the_last_loss:
                     the_last_loss = loss_db[current_task_id][epoch-1]
 
                 if epoch == args.epochs_per_task:
-                    #tune.report(val_loss= loss_db[current_task_id][epoch])
                     if trigger_times > 0:
                         model = get_benchmark_model(args)
                         model.load_state_dict(backup_model.state_dict())
@@ -753,47 +738,34 @@ def tuning(args):
                     pred_vector = make_prediction_vector(X, Y)
                     print(forgetting_metric(pred_vector,
                                             pred_vector_list, current_task_id))
-                    # accuracy_results.append(metrics['accuracy'])
-                    # forgetting_result.append(forgetting_metric(
-                    # pred_vector, pred_vector_list, current_task_id))
-                    # task_counter.append(current_task_id)
                     pred_vector_list.append(pred_vector)
                     fisher = post_train_process_ewc(
                         train_loader, model, optimizer, current_task_id, fisher)
                     old_model = post_train_process_fd(model)
                     res = randomExemplarsSelector(
                         model, exemplar_loader, current_task_id, exemplars_per_class, TRAIN_CLASSES)
-                    #selected_exemplar = torch.utils.data.Subset(exemplar_loader.dataset, res)
-                    #exemplars_vector_list = []
                     exemplars_vector_list.append(res)
                     matrix = confusion_matrix(X, Y)
                     # plot_conf_matrix(matrix)
                     acc_db, loss_db = log_metrics(
                         metrics, time, current_task_id, acc_db, loss_db)
+					# save model checkpoint on task 1
                     save_checkpoint_Adam(model, optimizer)
                     time = 0
                     trigger_times = 0
                     the_last_loss = 100
-                    mean = compute_mean_of_exemplars(
-                        model, train_loader, current_task_id)
-                    mean_vector.append(torch.stack(mean).numpy())
+                    #mean = compute_mean_of_exemplars(
+                        #model, train_loader, current_task_id)
+                    #mean_vector.append(torch.stack(mean).numpy())
 
-                    if current_task_id > 1:
-                        e_loss = np.array(ewc_loss)
-                        a_loss = np.array(all_loss)
-                        epochs = np.array(counter)
-                        df = pd.DataFrame(
-                            {"Item Name": epochs, "loss": a_loss, "ewc_loss": e_loss})
-                        string = 'prova{}.csv'.format(current_task_id)
-                        df.to_csv(string, sep=';', index=False)
         if current_task_id > 1:
+			# parameters trials on task 2
             for index in range(len(config['lambda'])):
                 print('trial n.{}/{}'.format(index+1, len(config['lambda'])))
                 print("lambda : {} , alpha : {}, beta : {}".format(config['lambda'][index], config['alpha'][index], config['beta'][index]))
                 model, optimizer = load_checkpoint(
                     model, optimizer, 'check.pth')
                 for epoch in range(1, args.epochs_per_task+1):
-                    # 1. train and save
 
                     prev_model = get_benchmark_model(args)
                     prev_model.load_state_dict(model.state_dict())
@@ -816,10 +788,7 @@ def tuning(args):
                     if ewc == 1:
                         metrics = eval_single_epoch_ewc(
                             model, val_loader, criterion, fisher, old_params, current_task_id)
-                        if current_task_id > 1:
-                            ewc_loss.append(metrics['ewcloss'])
-                            all_loss.append(metrics['loss'])
-                            # counter.append(epoch)
+
                     elif lwf == 1:
                         metrics = eval_single_epoch_focal(
                             model, val_loader, criterion, old_model, current_task_id, config, index)
@@ -845,7 +814,6 @@ def tuning(args):
                         trigger_times = 0
                     if trigger_times >= patience:
                         print('Early stopping!')
-                        #tune.report(val_loss = loss_db[current_task_id][epoch])
                         model = backup_model.to(DEVICE)
                         optimizer = type(backup_opt)(
                             model.parameters(), lr=args.lr)
@@ -869,36 +837,24 @@ def tuning(args):
                         pred_vector_list.append(pred_vector)
                         fisher = post_train_process_ewc(
                             train_loader, model, optimizer, current_task_id, fisher)
-                        old_model = post_train_process_fd(model)
+                        #old_model = post_train_process_fd(model)
                         res = randomExemplarsSelector(
                             model, exemplar_loader, current_task_id, exemplars_per_class, TRAIN_CLASSES)
-                        #selected_exemplar = torch.utils.data.Subset(exemplar_loader.dataset, res)
-                        #exemplars_vector_list = []
                         exemplars_vector_list.append(res)
                         # print(len(selected_exemplar))
                         matrix = confusion_matrix(X, Y)
                         # plot_conf_matrix(matrix)
                         acc_db, loss_db = log_metrics(
                             metrics, time, current_task_id, acc_db, loss_db)
-                        #save_checkpoint_Adam(backup_model, backup_opt)
                         time = 0
                         trigger_times = 0
                         the_last_loss = 100
-                        if current_task_id > 1:
-                            e_loss = np.array(ewc_loss)
-                            a_loss = np.array(all_loss)
-                            epochs = np.array(counter)
-                            df = pd.DataFrame(
-                                {"Item Name": epochs, "loss": a_loss, "ewc_loss": e_loss})
-                            string = 'prova{}.csv'.format(current_task_id)
-                            df.to_csv(string, sep=';', index=False)
                         break
 
                     if loss_db[current_task_id][epoch-1] < the_last_loss:
                         the_last_loss = loss_db[current_task_id][epoch-1]
 
                     if epoch == args.epochs_per_task:
-                        #tune.report(val_loss= loss_db[current_task_id][epoch])
                         if trigger_times > 0:
                             model = get_benchmark_model(args)
                             model.load_state_dict(backup_model.state_dict())
@@ -927,32 +883,20 @@ def tuning(args):
                         pred_vector_list.append(pred_vector)
                         fisher = post_train_process_ewc(
                             train_loader, model, optimizer, current_task_id, fisher)
-                        old_model = post_train_process_fd(model)
+                        #old_model = post_train_process_fd(model)
                         res = randomExemplarsSelector(
                             model, exemplar_loader, current_task_id, exemplars_per_class, TRAIN_CLASSES)
-                        #selected_exemplar = torch.utils.data.Subset(exemplar_loader.dataset, res)
-                        #exemplars_vector_list = []
                         exemplars_vector_list.append(res)
                         matrix = confusion_matrix(X, Y)
                         # plot_conf_matrix(matrix)
                         acc_db, loss_db = log_metrics(
                             metrics, time, current_task_id, acc_db, loss_db)
-                        #save_checkpoint_Adam(model, optimizer)
                         time = 0
                         trigger_times = 0
                         the_last_loss = 100
-                        mean = compute_mean_of_exemplars(
-                            model, train_loader, current_task_id)
-                        mean_vector.append(torch.stack(mean).numpy())
-
-                        if current_task_id > 1:
-                            e_loss = np.array(ewc_loss)
-                            a_loss = np.array(all_loss)
-                            epochs = np.array(counter)
-                            df = pd.DataFrame(
-                                {"Item Name": epochs, "loss": a_loss, "ewc_loss": e_loss})
-                            string = 'prova{}.csv'.format(current_task_id)
-                            df.to_csv(string, sep=';', index=False)
+                        #mean = compute_mean_of_exemplars(
+                            #model, train_loader, current_task_id)
+                        #mean_vector.append(torch.stack(mean).numpy())
 
     # get_PCA_components(mean_vector)
     data_to_csv(accuracy_results, forgetting_result,
@@ -961,6 +905,9 @@ def tuning(args):
 
 if __name__ == "__main__":
     args = parse_arguments()
-    run_experiment(args)
-    #tuning(args)
-	
+    if args.grid_search:
+        print('grid search on task 2 with config')
+        tuning_on_task2(args)
+        
+    else:
+        run_experiment(args)

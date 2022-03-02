@@ -493,5 +493,3 @@ def get_split_cifar100_tasks_joint(num_tasks, batch_size):
            'test': test_loader, 'val': val_loader, 'exemplar': exemplar_loader}
 
     return datasets
-
-
