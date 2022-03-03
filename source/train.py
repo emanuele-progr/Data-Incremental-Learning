@@ -1,5 +1,6 @@
 import torch
 from utils import DEVICE
+import copy
 
 
 def train_single_epoch(net, optimizer, loader, criterion, task_id=None):
@@ -147,6 +148,36 @@ def train_single_epoch_focal(net, optimizer, loader, criterion, old_model, task_
 		loss.backward()
 		optimizer.step()
 	return net	
+
+def train_single_epoch_focal_fd(net, optimizer, loader, criterion, old_model, task_id=None, config=None, index=None):
+	"""
+	Train the model for a single epoch
+	
+	:param net:
+	:param optimizer:
+	:param loader:
+	:param criterion:
+	:param task_id:
+	:return:
+	"""
+	net = net.to(DEVICE)
+	loss_penalty = 0
+	
+	net.train()
+	for batch_idx, (data, target) in enumerate(loader):
+		data = data.to(DEVICE)
+		target = target.to(DEVICE)
+		optimizer.zero_grad()
+		pred, feat = net(data, return_features=True)
+		if task_id > 1:
+			pred_old, feat_old = old_model(data, return_features=True)
+			prediction_old = pred_old.data.max(1, keepdim=True)[1]
+			mask = prediction_old.eq(target.data.view_as(prediction_old)).long()			
+			loss_penalty = focal_fd_penalty(feat, feat_old, mask, config, index)
+		loss = criterion(pred, target) + loss_penalty
+		loss.backward()
+		optimizer.step()
+	return net
 
 def train_single_epoch_iCarl(net, optimizer, loader, criterion, old_model, task_id=None):
 	"""
@@ -321,6 +352,43 @@ def eval_single_epoch_focal(net, loader, criterion, old_model, task_id=None, con
 	correct = correct.to('cpu')
 	avg_acc = 100.0 * float(correct.numpy()) / len(loader.dataset)
 	return {'accuracy': avg_acc, 'loss': test_loss, 'focal_loss': focal_loss}
+
+def eval_single_epoch_focal_fd(net, loader, criterion, old_model, task_id=None, config=None, index=None):
+	"""
+	Evaluate the model for single epoch
+	
+	:param net:
+	:param loader:
+	:param criterion:
+	:param task_id:
+	:return:
+	"""
+	net = net.to(DEVICE)
+	net.eval()
+	test_loss = 0
+	loss_penalty = torch.tensor(0)
+	focal_fd_loss = 0
+	correct = 0
+	with torch.no_grad():
+		for data, target in loader:
+			data = data.to(DEVICE)
+			target = target.to(DEVICE)
+			output, feat = net(data, return_features = True)
+			if task_id > 1:
+				pred_old, feat_old = old_model(data, return_features=True)
+				prediction_old = pred_old.data.max(1, keepdim=True)[1]
+				mask = prediction_old.eq(target.data.view_as(prediction_old)).long()				
+				loss_penalty = focal_fd_penalty(feat, feat_old, mask, config, index)
+
+			test_loss += (criterion(output, target).item() + loss_penalty.item()) * loader.batch_size
+			focal_fd_loss += loss_penalty.item() * loader.batch_size
+			pred = output.data.max(1, keepdim=True)[1]
+			correct += pred.eq(target.data.view_as(pred)).sum()
+	test_loss /= len(loader.dataset)
+	focal_fd_loss /= len(loader.dataset)
+	correct = correct.to('cpu')
+	avg_acc = 100.0 * float(correct.numpy()) / len(loader.dataset)
+	return {'accuracy': avg_acc, 'loss': test_loss, 'focal_fd_loss': focal_fd_loss}
 
 def eval_single_epoch_ewc(net, loader, criterion, fisher, old_params, task_id=None):
 	"""
@@ -539,7 +607,27 @@ def focal_distillation_penalty(outputs, outputs_old, mask, config, index):
 
 	return loss
 
+def focal_fd_penalty(feat, feat_old, mask, config, index):
+	if config is not None:
+		lamb = config["lambda"][index]
+		beta = config["beta"][index]
+		alpha = config["alpha"][index]
 
+	else:
+		lamb = 1
+		alpha = 1
+		beta = 5	
+	
+	loss_1 = alpha * torch.mean(torch.norm(feat - feat_old, p=2, dim=1))
+	masked_difference = torch.flatten(mask) * torch.norm(feat - feat_old, p=2, dim=1)
+	if len(masked_difference[masked_difference.nonzero()]) != 0:
+		loss_2 = beta * torch.mean(masked_difference[masked_difference.nonzero()])
+	else:
+		loss_2 = 0
+
+	loss = lamb * (loss_1 + loss_2)
+
+	return loss
 
 def icarl_penalty(out, out_old):
 

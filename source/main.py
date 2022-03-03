@@ -158,7 +158,7 @@ def run_experiment(args):
                 train_single_epoch_ewc(
                     model, optimizer, train_loader, criterion, old_params, fisher, current_task_id)
             elif lwf == 1:
-                train_single_epoch_focal(
+                train_single_epoch_focal_fd(
                     model, optimizer, train_loader, criterion, old_model, current_task_id)
                 #train_single_epoch_iCarl(model, optimizer, train_loader, criterion, old_model, current_task_id)
             else:
@@ -175,7 +175,7 @@ def run_experiment(args):
                     all_loss.append(metrics['loss'])
                     # counter.append(epoch)
             elif lwf == 1:
-                metrics = eval_single_epoch_focal(
+                metrics = eval_single_epoch_focal_fd(
                     model, val_loader, criterion, old_model, current_task_id)
                 #metrics = eval_single_epoch_iCarl(model, val_loader, criterion, old_model, exemplar_means, current_task_id)
             else:
@@ -202,11 +202,11 @@ def run_experiment(args):
                 model = backup_model.to(DEVICE)
                 optimizer = type(backup_opt)(model.parameters(), lr=args.lr)
                 optimizer.load_state_dict(backup_opt.state_dict())
-                val_loader = tasks[current_task_id]['test']
+                test_loader = tasks[current_task_id]['test']
 
                 # 2.1. compute accuracy and loss
                 metrics, X, Y = final_eval(
-                    model, val_loader, criterion, current_task_id)
+                    model, test_loader, criterion, current_task_id)
                 pred_vector = make_prediction_vector(X, Y)
                 print(forgetting_metric(pred_vector,
                       pred_vector_list, current_task_id))
@@ -256,11 +256,11 @@ def run_experiment(args):
                     optimizer.load_state_dict(backup_opt.state_dict())
                 else:
                     model = model.to(DEVICE)
-                val_loader = tasks[current_task_id]['test']
+                test_loader = tasks[current_task_id]['test']
 
                 # 2.1. compute accuracy and loss
                 metrics, X, Y = final_eval(
-                    model, val_loader, criterion, current_task_id)
+                    model, test_loader, criterion, current_task_id)
 
                 pred_vector = make_prediction_vector(X, Y)
                 print(forgetting_metric(pred_vector,
@@ -539,8 +539,8 @@ def save_checkpoint_Adam(model, optimizer):
 
 
 config = {
-
-    "lambda": [1, 1, 1, 1, 1, 1, 1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 10, 10, 10, 10, 10, 10, 10],
+    "lambda": [0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.3, 0.3, 0.3, 0.3, 0.3, 0.3, 0.3, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5],
+    #"lambda": [1, 1, 1, 1, 1, 1, 1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 10, 10, 10, 10, 10, 10, 10],
     "alpha": [0, 1, 1, 1, 1, 1, 1, 0, 1, 1, 1, 1, 1, 1, 0, 1, 1, 1, 1, 1, 1 ],
     "beta": [1, 0, 1, 2, 5, 10, 20, 1, 0, 1, 2, 5, 10, 20, 1, 0, 1, 2, 5, 10, 20]
 
@@ -548,7 +548,10 @@ config = {
     #"alpha": [0, 1, 1, 1, 1, 1, 1],
     #"beta": [1, 0, 1, 2, 5, 10, 20]
 
-    #"lambda": [0.001, 0.01, 0.1, 1, 10, 100, 1000]
+    #"lambda": [0.001, 0.01, 0.1, 1, 10, 100, 1000],
+    #"alpha": [1, 1, 1, 1, 1, 1, 1],
+    #"beta": [0, 0, 0, 0, 0, 0, 0]
+
 
 }
 
@@ -647,7 +650,7 @@ def tuning_on_task2(args):
                     train_single_epoch_ewc(
                         model, optimizer, train_loader, criterion, old_params, fisher, current_task_id)
                 elif lwf == 1:
-                    train_single_epoch_focal(
+                    train_single_epoch_focal_fd(
                         model, optimizer, train_loader, criterion, old_model, current_task_id)
                     #train_single_epoch_iCarl(model, optimizer, train_loader, criterion, old_model, current_task_id)
                 else:
@@ -664,7 +667,7 @@ def tuning_on_task2(args):
                         all_loss.append(metrics['loss'])
                         # counter.append(epoch)
                 elif lwf == 1:
-                    metrics = eval_single_epoch_focal(
+                    metrics = eval_single_epoch_focal_fd(
                         model, val_loader, criterion, old_model, current_task_id)
                     #metrics = eval_single_epoch_iCarl(model, val_loader, criterion, old_model, exemplar_means, current_task_id)
                 else:
@@ -687,12 +690,10 @@ def tuning_on_task2(args):
                     trigger_times = 0
                 if trigger_times >= patience:
                     print('Early stopping!')
-                    #tune.report(val_loss = loss_db[current_task_id][epoch])
                     model = backup_model.to(DEVICE)
                     optimizer = type(backup_opt)(
                         model.parameters(), lr=args.lr)
                     optimizer.load_state_dict(backup_opt.state_dict())
-                    val_loader = tasks[current_task_id]['test']
 
                     # 2.1. compute accuracy and loss
                     metrics, X, Y = final_eval(
@@ -716,6 +717,8 @@ def tuning_on_task2(args):
                     trigger_times = 0
                     the_last_loss = 100
 
+                    break
+
                 if loss_db[current_task_id][epoch-1] < the_last_loss:
                     the_last_loss = loss_db[current_task_id][epoch-1]
 
@@ -729,7 +732,6 @@ def tuning_on_task2(args):
                         optimizer.load_state_dict(backup_opt.state_dict())
                     else:
                         model = model.to(DEVICE)
-                    val_loader = tasks[current_task_id]['test']
 
                     # 2.1. compute accuracy and loss
                     metrics, X, Y = final_eval(
@@ -754,9 +756,7 @@ def tuning_on_task2(args):
                     time = 0
                     trigger_times = 0
                     the_last_loss = 100
-                    #mean = compute_mean_of_exemplars(
-                        #model, train_loader, current_task_id)
-                    #mean_vector.append(torch.stack(mean).numpy())
+
 
         if current_task_id > 1:
 			# parameters trials on task 2
@@ -776,7 +776,7 @@ def tuning_on_task2(args):
                         train_single_epoch_ewc(
                             model, optimizer, train_loader, criterion, old_params, fisher, current_task_id)
                     elif lwf == 1:
-                        train_single_epoch_focal(
+                        train_single_epoch_focal_fd(
                             model, optimizer, train_loader, criterion, old_model, current_task_id, config, index)
                         #train_single_epoch_iCarl(model, optimizer, train_loader, criterion, old_model, current_task_id)
                     else:
@@ -790,7 +790,7 @@ def tuning_on_task2(args):
                             model, val_loader, criterion, fisher, old_params, current_task_id)
 
                     elif lwf == 1:
-                        metrics = eval_single_epoch_focal(
+                        metrics = eval_single_epoch_focal_fd(
                             model, val_loader, criterion, old_model, current_task_id, config, index)
                         #metrics = eval_single_epoch_iCarl(model, val_loader, criterion, old_model, exemplar_means, current_task_id)
                     else:
@@ -818,7 +818,6 @@ def tuning_on_task2(args):
                         optimizer = type(backup_opt)(
                             model.parameters(), lr=args.lr)
                         optimizer.load_state_dict(backup_opt.state_dict())
-                        val_loader = tasks[current_task_id]['test']
 
                         # 2.1. compute accuracy and loss
                         metrics, X, Y = final_eval(
@@ -837,13 +836,7 @@ def tuning_on_task2(args):
                         pred_vector_list.append(pred_vector)
                         fisher = post_train_process_ewc(
                             train_loader, model, optimizer, current_task_id, fisher)
-                        #old_model = post_train_process_fd(model)
-                        res = randomExemplarsSelector(
-                            model, exemplar_loader, current_task_id, exemplars_per_class, TRAIN_CLASSES)
-                        exemplars_vector_list.append(res)
-                        # print(len(selected_exemplar))
                         matrix = confusion_matrix(X, Y)
-                        # plot_conf_matrix(matrix)
                         acc_db, loss_db = log_metrics(
                             metrics, time, current_task_id, acc_db, loss_db)
                         time = 0
@@ -864,7 +857,6 @@ def tuning_on_task2(args):
                             optimizer.load_state_dict(backup_opt.state_dict())
                         else:
                             model = model.to(DEVICE)
-                        val_loader = tasks[current_task_id]['test']
 
                         # 2.1. compute accuracy and loss
                         metrics, X, Y = final_eval(
@@ -881,12 +873,6 @@ def tuning_on_task2(args):
                         beta_value.append(config['beta'][index])						
                         task_counter.append(current_task_id)
                         pred_vector_list.append(pred_vector)
-                        fisher = post_train_process_ewc(
-                            train_loader, model, optimizer, current_task_id, fisher)
-                        #old_model = post_train_process_fd(model)
-                        res = randomExemplarsSelector(
-                            model, exemplar_loader, current_task_id, exemplars_per_class, TRAIN_CLASSES)
-                        exemplars_vector_list.append(res)
                         matrix = confusion_matrix(X, Y)
                         # plot_conf_matrix(matrix)
                         acc_db, loss_db = log_metrics(
@@ -894,11 +880,8 @@ def tuning_on_task2(args):
                         time = 0
                         trigger_times = 0
                         the_last_loss = 100
-                        #mean = compute_mean_of_exemplars(
-                            #model, train_loader, current_task_id)
-                        #mean_vector.append(torch.stack(mean).numpy())
 
-    # get_PCA_components(mean_vector)
+    
     data_to_csv(accuracy_results, forgetting_result,
                 task_counter, lambda_value, alpha_value, beta_value)
 
