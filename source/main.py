@@ -103,8 +103,6 @@ def run_experiment(args):
         ewc_loss = []
         all_loss = []
         counter = []
-        if args.compute_joint_incremental:
-            model = get_benchmark_model(args)
         #if current_task_id > 1:
             #with torch.no_grad():
             #model.linear.weight.data = torch.randn(model.linear.weight.data.size())*0.1
@@ -595,8 +593,6 @@ def tuning_on_task2(args):
         ewc_loss = []
         all_loss = []
         counter = []
-        if args.compute_joint_incremental:
-            model = get_benchmark_model(args)
         #if current_task_id > 1:
             #with torch.no_grad():
             #model.linear.weight.data = torch.randn(model.linear.weight.data.size())*0.1

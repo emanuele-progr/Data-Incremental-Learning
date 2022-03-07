@@ -448,7 +448,6 @@ def get_split_tiny_ImageNet_tasks(num_tasks, batch_size):
 
 
 
-
 def get_split_cifar100_tasks_joint(num_tasks, batch_size):
 
     datasets = {}
@@ -481,10 +480,13 @@ def get_split_cifar100_tasks_joint(num_tasks, batch_size):
 
         train_ds, residual = random_split(train, [int(num_elements_train), int(
             (len(train)-num_elements_train))], generator=torch.Generator().manual_seed(get_seed()))
+         
         if task_id == 1:
             train_j = train_ds
         else:
             train_j = torch.utils.data.ConcatDataset([train_j, train_ds])
+        exemplar_loader = torch.utils.data.DataLoader(
+           train_ds, batch_size=batch_size)
         train_loader = torch.utils.data.DataLoader(
            train_j, batch_size=batch_size, shuffle=True)
         train = residual
