@@ -217,3 +217,5 @@ def ResNet32(nclasses=100, nf=16, config={}):
 def ResNet50(nclasses=100, nf=64, config={}):
 	net = ResNet(Bottleneck, [3, 4, 6, 3], nclasses, nf, config=config)
 	return net
+
+

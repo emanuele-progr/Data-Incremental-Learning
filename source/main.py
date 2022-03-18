@@ -33,8 +33,10 @@ def get_benchmark_data_loader(args):
         return get_split_cifar100_tasks
     elif args.dataset == 'cifar-10' or args.dataset == 'cifar10':
         return get_split_cifar10_tasks
-    elif args.dataset == 'tiny-imagenet' or args.dataset == 'imagenet':
+    elif args.dataset == 'tiny-imagenet' or args.dataset == 'imagenet'and args.compute_joint_incremental is False:
         return get_split_tiny_ImageNet_tasks
+    elif args.dataset == 'tiny-imagenet' or args.dataset == 'imagenet'and args.compute_joint_incremental:
+        return get_split_tiny_ImageNet_tasks_joint   
     else:
         raise Exception("Unknown dataset.\n" +
                         "The code supports 'mnist, cifar-10, cifar-100 and imagenet.")
@@ -57,7 +59,7 @@ def get_benchmark_model(args):
         return ResNet32(nclasses=10, config={'dropout': args.dropout}).to(DEVICE)
     elif 'imagenet' in args.dataset:
         TRAIN_CLASSES = 200
-        return ResNet32(nclasses=200, config={'dropout': args.dropout}).to(DEVICE)
+        return ResNet18(nclasses=200, config={'dropout': args.dropout}).to(DEVICE)
     else:
         raise Exception("Unknown dataset.\n" +
                         "The code supports 'mnist, cifar10, cifar100 and imagenet.")
@@ -105,8 +107,8 @@ def run_experiment(args):
         counter = []
         #if current_task_id > 1:
             #with torch.no_grad():
-            #model.linear.weight.data = torch.randn(model.linear.weight.data.size())*0.1
-            #model.linear.bias.data = torch.randn(model.linear.bias.data.size())*0.1
+                #model.linear.weight.data = torch.randn(model.linear.weight.data.size())*0.1
+                #model.linear.bias.data = torch.randn(model.linear.bias.data.size())*0.1
             # student-teacher random init
                 #stdv = 1. / math.sqrt(model.linear.weight.size(1))
                 #model.linear.weight.data.uniform_(-stdv, stdv)
@@ -156,7 +158,7 @@ def run_experiment(args):
                 train_single_epoch_ewc(
                     model, optimizer, train_loader, criterion, old_params, fisher, current_task_id)
             elif lwf == 1:
-                train_single_epoch_focal_fd(
+                train_single_epoch_lwf(
                     model, optimizer, train_loader, criterion, old_model, current_task_id)
                 #train_single_epoch_iCarl(model, optimizer, train_loader, criterion, old_model, current_task_id)
             else:
@@ -173,7 +175,7 @@ def run_experiment(args):
                     all_loss.append(metrics['loss'])
                     # counter.append(epoch)
             elif lwf == 1:
-                metrics = eval_single_epoch_focal_fd(
+                metrics = eval_single_epoch_lwf(
                     model, val_loader, criterion, old_model, current_task_id)
                 #metrics = eval_single_epoch_iCarl(model, val_loader, criterion, old_model, exemplar_means, current_task_id)
             else:
@@ -537,12 +539,16 @@ def save_checkpoint_Adam(model, optimizer):
 
 
 config = {
-    "lambda": [0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.3, 0.3, 0.3, 0.3, 0.3, 0.3, 0.3, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5],
-    #"lambda": [1, 1, 1, 1, 1, 1, 1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 10, 10, 10, 10, 10, 10, 10],
+    #"lambda": [0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.08, 0.08, 0.08, 0.08, 0.08, 0.08, 0.08, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05],
+    #"lambda": [1, 1, 1, 1, 1, 1, 1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.01, 0.01, 0.01, 0.01, 0.01, 0.01, 0.01],
+    "lambda": [0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.01, 0.01, 0.01, 0.01, 0.01, 0.01, 0.01, 0.001, 0.001, 0.001, 0.001, 0.001, 0.001, 0.001],
     "alpha": [0, 1, 1, 1, 1, 1, 1, 0, 1, 1, 1, 1, 1, 1, 0, 1, 1, 1, 1, 1, 1 ],
     "beta": [1, 0, 1, 2, 5, 10, 20, 1, 0, 1, 2, 5, 10, 20, 1, 0, 1, 2, 5, 10, 20]
 
-    #"lambda": [0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1],
+    #"lambda": [1, 1, 1, 1, 1, 1, 1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1],
+    #"alpha": [0, 1, 1, 1, 1, 1, 1, 0, 1, 1, 1, 1, 1, 1],
+    #"beta": [1, 0, 1, 2, 5, 10, 20, 1, 0, 1, 2, 5, 10, 20]
+    #"lambda": [0.01, 0.01, 0.01, 0.01, 0.01, 0.01, 0.01],
     #"alpha": [0, 1, 1, 1, 1, 1, 1],
     #"beta": [1, 0, 1, 2, 5, 10, 20]
 
@@ -593,6 +599,8 @@ def tuning_on_task2(args):
         ewc_loss = []
         all_loss = []
         counter = []
+        if args.compute_joint_incremental:
+            model = get_benchmark_model(args)
         #if current_task_id > 1:
             #with torch.no_grad():
             #model.linear.weight.data = torch.randn(model.linear.weight.data.size())*0.1
@@ -646,7 +654,7 @@ def tuning_on_task2(args):
                     train_single_epoch_ewc(
                         model, optimizer, train_loader, criterion, old_params, fisher, current_task_id)
                 elif lwf == 1:
-                    train_single_epoch_focal_fd(
+                    train_single_epoch_fd(
                         model, optimizer, train_loader, criterion, old_model, current_task_id)
                     #train_single_epoch_iCarl(model, optimizer, train_loader, criterion, old_model, current_task_id)
                 else:
@@ -663,7 +671,7 @@ def tuning_on_task2(args):
                         all_loss.append(metrics['loss'])
                         # counter.append(epoch)
                 elif lwf == 1:
-                    metrics = eval_single_epoch_focal_fd(
+                    metrics = eval_single_epoch_fd(
                         model, val_loader, criterion, old_model, current_task_id)
                     #metrics = eval_single_epoch_iCarl(model, val_loader, criterion, old_model, exemplar_means, current_task_id)
                 else:
@@ -752,7 +760,9 @@ def tuning_on_task2(args):
                     time = 0
                     trigger_times = 0
                     the_last_loss = 100
-
+                    #mean = compute_mean_of_exemplars(
+                        #model, train_loader, current_task_id)
+                    #mean_vector.append(torch.stack(mean).numpy())
 
         if current_task_id > 1:
 			# parameters trials on task 2

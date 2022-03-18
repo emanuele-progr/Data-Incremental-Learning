@@ -238,7 +238,7 @@ def get_split_MNIST_tasks(num_tasks, batch_size):
     # convention: tasks starts from 1 not 0 !
     # task_id = 1 (i.e., first task) => start_class = 0, end_class = 4
 
-    mnist_train_transforms = torchvision.transforms.Compose([torchvision.transforms.RandomHorizontalFlip(), torchvision.transforms.RandomVerticalFlip(), torchvision.transforms.RandomRotation(5),torchvision.transforms.ToTensor(),])
+    mnist_train_transforms = torchvision.transforms.Compose([ torchvision.transforms.RandomRotation(5),torchvision.transforms.ToTensor(),])
     mnist_test_transforms = torchvision.transforms.Compose(
        [torchvision.transforms.ToTensor(), ])
     mnist_train = torchvision.datasets.MNIST(
@@ -413,8 +413,8 @@ def get_split_tiny_ImageNet_tasks(num_tasks, batch_size):
         torchvision.transforms.Resize(32),
         torchvision.transforms.ToTensor(), ])
 
-    imageNet_train = TinyImageNet(DATA_DIR, train=True, transforms=imageNet_train_transforms)
-    imageNet_test = TinyImageNet(DATA_DIR, train=False, transforms=imageNet_test_transforms)
+    imageNet_train = TinyImageNet(DATA_DIR, train=True, transform=imageNet_train_transforms)
+    imageNet_test = TinyImageNet(DATA_DIR, train=False, transform=imageNet_test_transforms)
     num_elements_train = len(imageNet_train)/num_tasks
     num_elements_test = len(imageNet_test)/2
 
@@ -426,8 +426,6 @@ def get_split_tiny_ImageNet_tasks(num_tasks, batch_size):
 
     test_loader = torch.utils.data.DataLoader(test_ds, batch_size=batch_size)
     val_loader = torch.utils.data.DataLoader(val_ds, batch_size=batch_size)
-
-    list_item = list(range(len(imageNet_train.targets)))
 
     train = imageNet_train
 
@@ -446,6 +444,53 @@ def get_split_tiny_ImageNet_tasks(num_tasks, batch_size):
 
     return datasets
 
+
+def get_split_tiny_ImageNet_tasks_joint(num_tasks, batch_size):
+
+    datasets = {}
+    imageNet_train_transforms = torchvision.transforms.Compose([
+        torchvision.transforms.Resize(32),
+            torchvision.transforms.RandomCrop(32, padding=4, padding_mode="reflect"),
+        torchvision.transforms.RandomHorizontalFlip(),
+        torchvision.transforms.ToTensor(), ])
+    imageNet_test_transforms = torchvision.transforms.Compose([
+        torchvision.transforms.Resize(32),
+        torchvision.transforms.ToTensor(), ])
+
+    imageNet_train = TinyImageNet(DATA_DIR, train=True, transform=imageNet_train_transforms)
+    imageNet_test = TinyImageNet(DATA_DIR, train=False, transform=imageNet_test_transforms)
+    num_elements_train = len(imageNet_train)/num_tasks
+    num_elements_test = len(imageNet_test)/2
+
+    #test_indices, _ = train_test_split(list(range(len(cifar_test.targets))), train_size = num_elements_test, stratify = cifar_test.targets)
+    #test_dataset = torch.utils.data.Subset(cifar_test, test_indices)
+
+    test_ds, val_ds = random_split(imageNet_test, [int(num_elements_test), int(
+       num_elements_test)], generator=torch.Generator().manual_seed(get_seed()))
+
+    test_loader = torch.utils.data.DataLoader(test_ds, batch_size=batch_size)
+    val_loader = torch.utils.data.DataLoader(val_ds, batch_size=batch_size)
+
+    train = imageNet_train
+
+    for task_id in range(1, num_tasks+1):
+
+        train_ds, residual = random_split(train, [int(num_elements_train), int(
+           (len(train)-num_elements_train))], generator=torch.Generator().manual_seed(get_seed()))
+        if task_id == 1:
+            train_j = train_ds
+        else:
+            train_j = torch.utils.data.ConcatDataset([train_j, train_ds])         
+        train_loader = torch.utils.data.DataLoader(
+           train_j, batch_size=batch_size, shuffle=True)
+        exemplar_loader = torch.utils.data.DataLoader(
+           train_ds, batch_size=batch_size)
+        train = residual
+
+        datasets[task_id] = {'train': train_loader, 'test': test_loader,
+           'val': val_loader, 'exemplar': exemplar_loader}
+
+    return datasets
 
 
 def get_split_cifar100_tasks_joint(num_tasks, batch_size):
@@ -495,3 +540,5 @@ def get_split_cifar100_tasks_joint(num_tasks, batch_size):
            'test': test_loader, 'val': val_loader, 'exemplar': exemplar_loader}
 
     return datasets
+
+

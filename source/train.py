@@ -55,7 +55,7 @@ def train_single_epoch_ewc(net, optimizer, loader, criterion, old_params, fisher
 	print('ewc penalty : {}'.format(loss_penalty))
 	return net
 
-def train_single_epoch_fd(net, optimizer, loader, criterion, old_model, task_id=None):
+def train_single_epoch_fd(net, optimizer, loader, criterion, old_model, task_id=None, config = None, index = None):
 	"""
 	Train the model for a single epoch
 	
@@ -77,7 +77,7 @@ def train_single_epoch_fd(net, optimizer, loader, criterion, old_model, task_id=
 		pred, feat = net(data, return_features=True)
 		if task_id > 1:
 			pred_old, feat_old = old_model(data, return_features=True)
-			loss_penalty = feature_distillation_penalty(feat, feat_old)
+			loss_penalty = feature_distillation_penalty(feat, feat_old, config, index)
 		loss = criterion(pred, target) + loss_penalty
 		loss.backward()
 		optimizer.step()
@@ -246,7 +246,7 @@ def eval_single_epoch(net, loader, criterion, task_id=None):
 	avg_acc = 100.0 * float(correct.numpy()) / len(loader.dataset)
 	return {'accuracy': avg_acc, 'loss': test_loss}
 
-def eval_single_epoch_fd(net, loader, criterion, old_model, task_id=None):
+def eval_single_epoch_fd(net, loader, criterion, old_model, task_id=None, config=None, index=None):
 	"""
 	Evaluate the model for single epoch
 	
@@ -269,7 +269,7 @@ def eval_single_epoch_fd(net, loader, criterion, old_model, task_id=None):
 			output, feat = net(data, return_features = True)
 			if task_id > 1:
 				pred_old, feat_old = old_model(data, return_features=True) 
-				loss_penalty = feature_distillation_penalty(feat, feat_old)
+				loss_penalty = feature_distillation_penalty(feat, feat_old, config, index)
 
 			test_loss += (criterion(output, target).item() + loss_penalty.item()) * loader.batch_size
 			fd_loss += loss_penalty.item() * loader.batch_size
@@ -575,8 +575,11 @@ def ewc_penalty(model, fisher, older_params):
 
 	return loss
 
-def feature_distillation_penalty(feat, feat_old):
-	lamb = 0.1
+def feature_distillation_penalty(feat, feat_old, config, index):
+	if config is not None:
+		lamb = config["lambda"][index]
+	else:	
+		lamb = 0
 	loss = lamb * torch.mean(torch.norm(feat - feat_old, p=2, dim=1))
 
 	return loss
@@ -599,9 +602,9 @@ def focal_distillation_penalty(outputs, outputs_old, mask, config, index):
 		alpha = config["alpha"][index]
 
 	else:
-		lamb = 1
+		lamb = 0.1
 		alpha = 1
-		beta = 5
+		beta = 10
 	T = 2
 	loss = lamb * focal_distillation_cross_entropy(outputs, outputs_old, exp = 1.0 / T, beta = beta, alpha= alpha, mask = mask)
 
@@ -614,9 +617,9 @@ def focal_fd_penalty(feat, feat_old, mask, config, index):
 		alpha = config["alpha"][index]
 
 	else:
-		lamb = 1
+		lamb = 0.01
 		alpha = 1
-		beta = 5	
+		beta = 10
 	
 	loss_1 = alpha * torch.mean(torch.norm(feat - feat_old, p=2, dim=1))
 	masked_difference = torch.flatten(mask) * torch.norm(feat - feat_old, p=2, dim=1)
