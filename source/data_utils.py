@@ -230,6 +230,49 @@ def get_split_cifar10_tasks(num_tasks, batch_size):
 
     return datasets
 
+def get_split_cifar10_tasks_joint(num_tasks, batch_size):
+
+    datasets = {}
+
+    # convention: tasks starts from 1 not 0 !
+    # task_id = 1 (i.e., first task) => start_class = 0, end_class = 4
+    cifar_train_transforms = torchvision.transforms.Compose([torchvision.transforms.RandomHorizontalFlip(), torchvision.transforms.RandomCrop(32, padding=4,padding_mode="reflect"),torchvision.transforms.ToTensor(),])
+    cifar_test_transforms = torchvision.transforms.Compose([torchvision.transforms.ToTensor(), ])
+    cifar_train = torchvision.datasets.CIFAR10(
+       './data/', train=True, download=True, transform=cifar_train_transforms)
+    cifar_test = torchvision.datasets.CIFAR10(
+       './data/', train=False, download=True, transform=cifar_test_transforms)
+
+    num_elements_train = len(cifar_train)/num_tasks
+    num_elements_test = len(cifar_test)/2
+
+    test_ds, val_ds = random_split(cifar_test, [int(num_elements_test), int(
+       num_elements_test)], generator=torch.Generator().manual_seed(get_seed()))
+
+    test_loader = torch.utils.data.DataLoader(test_ds, batch_size=batch_size)
+    val_loader = torch.utils.data.DataLoader(val_ds, batch_size=batch_size)
+
+    train = cifar_train
+
+    for task_id in range(1, num_tasks+1):
+
+        train_ds, residual = random_split(train, [int(num_elements_train), int(
+           (len(train)-num_elements_train))], generator=torch.Generator().manual_seed(get_seed()))
+        if task_id == 1:
+            train_j = train_ds
+        else:
+            train_j = torch.utils.data.ConcatDataset([train_j, train_ds])
+        train_loader = torch.utils.data.DataLoader(
+           train_j, batch_size=batch_size, shuffle=True)
+        exemplar_loader = torch.utils.data.DataLoader(
+           train_ds, batch_size=batch_size)
+        train = residual
+
+        datasets[task_id] = {'train': train_loader,
+           'test': test_loader, 'val': val_loader, 'exemplar': exemplar_loader}
+
+    return datasets
+
 
 def get_split_MNIST_tasks(num_tasks, batch_size):
 

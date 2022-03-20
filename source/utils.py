@@ -25,20 +25,19 @@ SEED = 123
 
 def parse_arguments():
 	parser = argparse.ArgumentParser(description='Argument parser')
-	parser.add_argument('--grid_search', action='store_true', dest='grid_search')
+	parser.add_argument('--resnet', default=32, type=int, help='resnet. options: 32, 18, 50')
 	parser.add_argument('--tasks', default=5, type=int, help='total number of tasks')
 	parser.add_argument('--epochs-per-task', default=1, type=int, help='epochs per task')
 	parser.add_argument('--dataset', default='cifar100', type=str, help='dataset. options: mnist, cifar10, cifar100, imagenet')
 	parser.add_argument('--batch-size', default=64, type=int, help='batch-size')
-	parser.add_argument('--exemplars', default=0, type=int, help='exemplars memory size at each task')
+	parser.add_argument('--exemplars_per_class', default=0, type=int, help='# of exemplar per class at each task')
 	parser.add_argument('--lr', default=0.001, type=float, help='learning rate')
 	parser.add_argument('--gamma', default=0.0, type=float, help='learning rate decay. Use 1.0 for no decay')
 	parser.add_argument('--dropout', default=0.0, type=float, help='dropout probability. Use 0.0 for no dropout')
-	parser.add_argument('--hiddens', default=256, type=int, help='num of hidden neurons in each layer of a 2-layer MLP')
-	parser.add_argument('--compute-eigenspectrum', default=False, type=bool, help='compute eigenvalues/eigenvectors?')
 	parser.add_argument('--seed', default=1234, type=int, help='random seed')
 	parser.add_argument('--compute_joint_incremental', action='store_true', dest='compute_joint_incremental', help='compute joint incremental?')
-
+	parser.add_argument('--reboot', action='store_true', dest='reboot', help='apply reboot method?')
+	parser.add_argument('--grid_search', action='store_true', dest='grid_search')
 	args = parser.parse_args()
 	return args
 
@@ -51,7 +50,7 @@ def init_experiment(args):
 	print(f"Parameters:\n  seed={args.seed}\n  benchmark={args.dataset}\n  num_tasks={args.tasks}\n  "+
 		  f"epochs_per_task={args.epochs_per_task}\n  batch_size={args.batch_size}\n  "+
 		  f"learning_rate={args.lr}\n  learning rate decay(gamma)={args.gamma}\n  dropout prob={args.dropout}\n  " +
-		  f"exemplars memory={args.exemplars}\n ")
+		  f"exemplar per class={args.exemplars_per_class}\n ")
 	
 	# 1. setup seed for reproducibility
 	torch.manual_seed(args.seed)
@@ -187,7 +186,7 @@ def post_train_process_ewc(train_loader, model, optimizer, current_task_id, fish
 
 	return fisher
 
-def post_train_process_fd(model):
+def post_train_process_freeze_model(model):
 
 	model_old = copy.deepcopy(model)
 	model_old.eval()

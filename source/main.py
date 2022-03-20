@@ -5,7 +5,6 @@ import numpy as np
 import pandas as pd
 import seaborn as sns
 import torch.nn as nn
-import argparse
 import matplotlib.pyplot as plt
 import matplotlib.figure as figure
 from train import *
@@ -19,7 +18,8 @@ TRAIN_CLASSES = 100
 def get_benchmark_data_loader(args):
     """
     Returns the benchmark loader which could be either of these:
-    get_split_cifar100_tasks, get_permuted_mnist_tasks, or get_rotated_mnist_tasks
+    get_split_cifar100_tasks, get_split_cifar100_tasks_joint, get_split_MNIST_tasks, get_split_cifar10_tasks,
+    get_split_cifar10_tasks_joint, get_split_tiny_ImageNet_tasks, get_split_tiny_ImageNet_tasks_joint
 
     :param args:
     :return: a function which when called, returns all tasks
@@ -31,7 +31,9 @@ def get_benchmark_data_loader(args):
         return get_split_cifar100_tasks_joint
     elif args.dataset == 'cifar-100' or args.dataset == 'cifar100' and args.compute_joint_incremental is False:
         return get_split_cifar100_tasks
-    elif args.dataset == 'cifar-10' or args.dataset == 'cifar10':
+    elif args.dataset == 'cifar-10' or args.dataset == 'cifar10' and args.compute_joint_incremental:
+        return get_split_cifar10_tasks_joint      
+    elif args.dataset == 'cifar-10' or args.dataset == 'cifar10' and args.compute_joint_incremental is False:
         return get_split_cifar10_tasks
     elif args.dataset == 'tiny-imagenet' or args.dataset == 'imagenet'and args.compute_joint_incremental is False:
         return get_split_tiny_ImageNet_tasks
@@ -48,21 +50,60 @@ def get_benchmark_model(args):
     :param args:
     :return:
     """
-    if 'mnist' in args.dataset:
-        TRAIN_CLASSES = 10
-        return MLP(args.hiddens, {'dropout': args.dropout}).to(DEVICE)
-    elif 'cifar100' in args.dataset:
-        TRAIN_CLASSES = 100
-        return ResNet32(config={'dropout': args.dropout}).to(DEVICE)
-    elif 'cifar10' in args.dataset:
-        TRAIN_CLASSES = 10
-        return ResNet32(nclasses=10, config={'dropout': args.dropout}).to(DEVICE)
-    elif 'imagenet' in args.dataset:
-        TRAIN_CLASSES = 200
-        return ResNet18(nclasses=200, config={'dropout': args.dropout}).to(DEVICE)
+    if args.resnet is 32:
+        if 'mnist' in args.dataset:
+            TRAIN_CLASSES = 10
+            return MLP(256, {'dropout': args.dropout}).to(DEVICE)
+        elif 'cifar100' in args.dataset:
+            TRAIN_CLASSES = 100
+            return ResNet32(config={'dropout': args.dropout}).to(DEVICE)
+        elif 'cifar10' in args.dataset:
+            TRAIN_CLASSES = 10
+            return ResNet32(nclasses=10, config={'dropout': args.dropout}).to(DEVICE)
+        elif 'imagenet' in args.dataset:
+            TRAIN_CLASSES = 200
+            return ResNet32(nclasses=200, config={'dropout': args.dropout}).to(DEVICE)
+        else:
+            raise Exception("Unknown dataset.\n" +
+                            "The code supports 'mnist, cifar10, cifar100 and imagenet.")
+    elif args.resnet is 18:
+        if 'mnist' in args.dataset:
+            TRAIN_CLASSES = 10
+            return MLP(256, {'dropout': args.dropout}).to(DEVICE)
+        elif 'cifar100' in args.dataset:
+            TRAIN_CLASSES = 100
+            return ResNet18(config={'dropout': args.dropout}).to(DEVICE)
+        elif 'cifar10' in args.dataset:
+            TRAIN_CLASSES = 10
+            return ResNet18(nclasses=10, config={'dropout': args.dropout}).to(DEVICE)
+        elif 'imagenet' in args.dataset:
+            TRAIN_CLASSES = 200
+            return ResNet18(nclasses=200, config={'dropout': args.dropout}).to(DEVICE)
+        else:
+            raise Exception("Unknown dataset.\n" +
+                            "The code supports 'mnist, cifar10, cifar100 and imagenet.")
+    
+    elif args.resnet is 50:
+        if 'mnist' in args.dataset:
+            TRAIN_CLASSES = 10
+            return MLP(256, {'dropout': args.dropout}).to(DEVICE)
+        elif 'cifar100' in args.dataset:
+            TRAIN_CLASSES = 100
+            return ResNet50(config={'dropout': args.dropout}).to(DEVICE)
+        elif 'cifar10' in args.dataset:
+            TRAIN_CLASSES = 10
+            return ResNet50(nclasses=10, config={'dropout': args.dropout}).to(DEVICE)
+        elif 'imagenet' in args.dataset:
+            TRAIN_CLASSES = 200
+            return ResNet50(nclasses=200, config={'dropout': args.dropout}).to(DEVICE)
+        else:
+            raise Exception("Unknown dataset.\n" +
+                            "The code supports 'mnist, cifar10, cifar100 and imagenet.")
+
     else:
-        raise Exception("Unknown dataset.\n" +
-                        "The code supports 'mnist, cifar10, cifar100 and imagenet.")
+        raise Exception("Unknown resnet.\n" +
+                            "The code supports 'resnet32 (32), resnet18 (18) and resnet50 (50).") 
+
 
 
 def run_experiment(args):
@@ -71,9 +112,9 @@ def run_experiment(args):
     acc_db, loss_db, hessian_eig_db = init_experiment(args)
     tasks = get_benchmark_data_loader(args)(args.tasks, args.batch_size)
     model = get_benchmark_model(args)
-    count_parameters(model)
 
-    # criterion
+    # display model parameters
+    count_parameters(model)
     criterion = nn.CrossEntropyLoss().to(DEVICE)
     time = 0
     the_last_loss = 100
@@ -90,40 +131,33 @@ def run_experiment(args):
     task_counter = []
     exemplar_means = []
     mean_vector = []
-    #lr = [0.01, 0.001, 0.001, 0.001, 0.0001, 0.0001, 0.0001, 0.0001, 0.0001, 0.0001]
-    lr = [0.001, 0.0001, 0.0001, 0.0001, 0.0001,
-          0.00001, 0.00001, 0.00001, 0.00001, 0.00001]
-    #lr = [0.001, 0.0001, 0.0001, 0.00001, 0.00001]
 
     fisher = {n: torch.zeros(p.shape).to(DEVICE)
               for n, p in model.named_parameters() if p.requires_grad}
-    # lr=lr[current_task_id - 1])
+
     optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
 
     for current_task_id in range(1, args.tasks+1):
-        #lr = max(args.lr * args.gamma ** (current_task_id), 0.00005)
         ewc_loss = []
         all_loss = []
         counter = []
-        #if current_task_id > 1:
-            #with torch.no_grad():
-                #model.linear.weight.data = torch.randn(model.linear.weight.data.size())*0.1
-                #model.linear.bias.data = torch.randn(model.linear.bias.data.size())*0.1
-            # student-teacher random init
-                #stdv = 1. / math.sqrt(model.linear.weight.size(1))
-                #model.linear.weight.data.uniform_(-stdv, stdv)
-                #model.linear.bias.data.uniform_(-stdv, stdv)
 
+        if args.reboot:
+            if current_task_id > 1:
+                with torch.no_grad():
+                    # student-teacher head random init
+                    stdv = 1. / math.sqrt(model.linear.weight.size(1))
+                    model.linear.weight.data.uniform_(-stdv, stdv)
+                    model.linear.bias.data.uniform_(-stdv, stdv)
 
-#		print(model.linear.weight.data)
 
         old_params = {n: p.clone().detach()
                       for n, p in model.named_parameters() if p.requires_grad}
         print("================== TASK {} / {} =================".format(current_task_id, args.tasks))
         train_loader = tasks[current_task_id]['train']
-        print(len(train_loader.dataset))
+        print("training data in this task: {}".format(len(train_loader.dataset)))
 
-        exemplars_per_class = args.exemplars
+        exemplars_per_class = args.exemplars_per_class
         counter = 0
 
         if current_task_id > 1:
@@ -198,7 +232,6 @@ def run_experiment(args):
                 trigger_times = 0
             if trigger_times >= patience:
                 print('Early stopping!')
-                #tune.report(val_loss = loss_db[current_task_id][epoch])
                 model = backup_model.to(DEVICE)
                 optimizer = type(backup_opt)(model.parameters(), lr=args.lr)
                 optimizer.load_state_dict(backup_opt.state_dict())
@@ -217,7 +250,7 @@ def run_experiment(args):
                 pred_vector_list.append(pred_vector)
                 fisher = post_train_process_ewc(
                     train_loader, model, optimizer, current_task_id, fisher)
-                old_model = post_train_process_fd(model)
+                old_model = post_train_process_freeze_model(model)
                 res = randomExemplarsSelector(
                     model, exemplar_loader, current_task_id, exemplars_per_class, TRAIN_CLASSES)
                 #selected_exemplar = torch.utils.data.Subset(exemplar_loader.dataset, res)
@@ -232,21 +265,13 @@ def run_experiment(args):
                 time = 0
                 trigger_times = 0
                 the_last_loss = 100
-                if current_task_id > 1:
-                    e_loss = np.array(ewc_loss)
-                    a_loss = np.array(all_loss)
-                    epochs = np.array(counter)
-                    df = pd.DataFrame(
-                        {"Item Name": epochs, "loss": a_loss, "ewc_loss": e_loss})
-                    string = 'prova{}.csv'.format(current_task_id)
-                    df.to_csv(string, sep=';', index=False)
+
                 break
 
             if loss_db[current_task_id][epoch-1] < the_last_loss:
                 the_last_loss = loss_db[current_task_id][epoch-1]
 
             if epoch == args.epochs_per_task:
-                #tune.report(val_loss= loss_db[current_task_id][epoch])
                 if trigger_times > 0:
                     model = get_benchmark_model(args)
                     model.load_state_dict(backup_model.state_dict())
@@ -272,7 +297,7 @@ def run_experiment(args):
                 pred_vector_list.append(pred_vector)
                 fisher = post_train_process_ewc(
                     train_loader, model, optimizer, current_task_id, fisher)
-                old_model = post_train_process_fd(model)
+                old_model = post_train_process_freeze_model(model)
                 res = randomExemplarsSelector(
                     model, exemplar_loader, current_task_id, exemplars_per_class, TRAIN_CLASSES)
                 #selected_exemplar = torch.utils.data.Subset(exemplar_loader.dataset, res)
@@ -290,14 +315,6 @@ def run_experiment(args):
                     model, train_loader, current_task_id)
                 mean_vector.append(torch.stack(mean).numpy())
 
-                if current_task_id > 1:
-                    e_loss = np.array(ewc_loss)
-                    a_loss = np.array(all_loss)
-                    epochs = np.array(counter)
-                    df = pd.DataFrame(
-                        {"Item Name": epochs, "loss": a_loss, "ewc_loss": e_loss})
-                    string = 'prova{}.csv'.format(current_task_id)
-                    df.to_csv(string, sep=';', index=False)
     # get_PCA_components(mean_vector)
     data_to_csv(accuracy_results, forgetting_result, task_counter)
     return
@@ -591,7 +608,6 @@ def tuning_on_task2(args):
 
     fisher = {n: torch.zeros(p.shape).to(DEVICE)
               for n, p in model.named_parameters() if p.requires_grad}
-    # lr=lr[current_task_id - 1])
     optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
 
     for current_task_id in range(1, 3):
@@ -601,25 +617,22 @@ def tuning_on_task2(args):
         counter = []
         if args.compute_joint_incremental:
             model = get_benchmark_model(args)
-        #if current_task_id > 1:
-            #with torch.no_grad():
-            #model.linear.weight.data = torch.randn(model.linear.weight.data.size())*0.1
-            #model.linear.bias.data = torch.randn(model.linear.bias.data.size())*0.1
-            # student-teacher random init
-                #stdv = 1. / math.sqrt(model.linear.weight.size(1))
-                #model.linear.weight.data.uniform_(-stdv, stdv)
-                #model.linear.bias.data.uniform_(-stdv, stdv)
 
-
-#		print(model.linear.weight.data)
+        if args.reboot:
+            if current_task_id > 1:
+                with torch.no_grad():
+                    # student-teacher head random init
+                    stdv = 1. / math.sqrt(model.linear.weight.size(1))
+                    model.linear.weight.data.uniform_(-stdv, stdv)
+                    model.linear.bias.data.uniform_(-stdv, stdv)
 
         old_params = {n: p.clone().detach()
                       for n, p in model.named_parameters() if p.requires_grad}
         print("================== TASK {} / {} =================".format(current_task_id, args.tasks))
         train_loader = tasks[current_task_id]['train']
-        print(len(train_loader.dataset))
+        print("training data in this task: {}".format(len(train_loader.dataset)))
 
-        exemplars_per_class = args.exemplars
+        exemplars_per_class = args.exemplars_per_class
         counter = 0
 
         if current_task_id > 1:
@@ -708,7 +721,7 @@ def tuning_on_task2(args):
                     pred_vector_list.append(pred_vector)
                     fisher = post_train_process_ewc(
                         train_loader, model, optimizer, current_task_id, fisher)
-                    old_model = post_train_process_fd(model)
+                    old_model = post_train_process_freeze_model(model)
                     res = randomExemplarsSelector(
                         model, exemplar_loader, current_task_id, exemplars_per_class, TRAIN_CLASSES)
                     exemplars_vector_list.append(res)
@@ -747,7 +760,7 @@ def tuning_on_task2(args):
                     pred_vector_list.append(pred_vector)
                     fisher = post_train_process_ewc(
                         train_loader, model, optimizer, current_task_id, fisher)
-                    old_model = post_train_process_fd(model)
+                    old_model = post_train_process_freeze_model(model)
                     res = randomExemplarsSelector(
                         model, exemplar_loader, current_task_id, exemplars_per_class, TRAIN_CLASSES)
                     exemplars_vector_list.append(res)
@@ -780,7 +793,7 @@ def tuning_on_task2(args):
                     prev_opt.load_state_dict(optimizer.state_dict())
                     if ewc == 1:
                         train_single_epoch_ewc(
-                            model, optimizer, train_loader, criterion, old_params, fisher, current_task_id)
+                            model, optimizer, train_loader, criterion, old_params, fisher, current_task_id, config, index)
                     elif lwf == 1:
                         train_single_epoch_focal_fd(
                             model, optimizer, train_loader, criterion, old_model, current_task_id, config, index)
@@ -793,7 +806,7 @@ def tuning_on_task2(args):
                     val_loader = tasks[current_task_id]['val']
                     if ewc == 1:
                         metrics = eval_single_epoch_ewc(
-                            model, val_loader, criterion, fisher, old_params, current_task_id)
+                            model, val_loader, criterion, fisher, old_params, current_task_id, config, index)
 
                     elif lwf == 1:
                         metrics = eval_single_epoch_focal_fd(

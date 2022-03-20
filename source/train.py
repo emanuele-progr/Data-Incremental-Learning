@@ -27,7 +27,7 @@ def train_single_epoch(net, optimizer, loader, criterion, task_id=None):
 		optimizer.step()
 	return net
 
-def train_single_epoch_ewc(net, optimizer, loader, criterion, old_params, fisher, task_id=None):
+def train_single_epoch_ewc(net, optimizer, loader, criterion, old_params, fisher, task_id=None, config = None, index = None):
 	"""
 	Train the model for a single epoch
 	
@@ -48,7 +48,7 @@ def train_single_epoch_ewc(net, optimizer, loader, criterion, old_params, fisher
 		optimizer.zero_grad()
 		pred = net(data)
 		if task_id > 1:
-			loss_penalty = ewc_penalty(net, fisher, old_params)
+			loss_penalty = ewc_penalty(net, fisher, old_params, config, index)
 		loss = criterion(pred, target) + loss_penalty
 		loss.backward()
 		optimizer.step()
@@ -390,7 +390,7 @@ def eval_single_epoch_focal_fd(net, loader, criterion, old_model, task_id=None, 
 	avg_acc = 100.0 * float(correct.numpy()) / len(loader.dataset)
 	return {'accuracy': avg_acc, 'loss': test_loss, 'focal_fd_loss': focal_fd_loss}
 
-def eval_single_epoch_ewc(net, loader, criterion, fisher, old_params, task_id=None):
+def eval_single_epoch_ewc(net, loader, criterion, fisher, old_params, task_id=None, config=None, index=None):
 	"""
 	Evaluate the model for single epoch
 	
@@ -408,7 +408,7 @@ def eval_single_epoch_ewc(net, loader, criterion, fisher, old_params, task_id=No
 	ewc_loss = 0
 
 	if task_id > 1:
-		loss_penalty = ewc_penalty(net, fisher, old_params)
+		loss_penalty = ewc_penalty(net, fisher, old_params, config, index)
 	else:
 		loss_penalty = torch.tensor(0.0)
 
@@ -563,8 +563,11 @@ def final_eval_iCarl(net, loader, criterion, exemplar_means, task_id=None):
     return {'accuracy': avg_acc, 'loss': test_loss}, X, Y
 
 
-def ewc_penalty(model, fisher, older_params):
-	lamb = 1000
+def ewc_penalty(model, fisher, older_params, config, index):
+	if config is not None:
+		lamb = config["lambda"][index]
+	else:	
+		lamb = 1000
 	loss = 0
 	loss_reg = 0
 	for n, p in model.named_parameters():
