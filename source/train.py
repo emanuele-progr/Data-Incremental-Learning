@@ -52,7 +52,6 @@ def train_single_epoch_ewc(net, optimizer, loader, criterion, old_params, fisher
 		loss = criterion(pred, target) + loss_penalty
 		loss.backward()
 		optimizer.step()
-	print('ewc penalty : {}'.format(loss_penalty))
 	return net
 
 def train_single_epoch_fd(net, optimizer, loader, criterion, old_model, task_id=None, config = None, index = None):
@@ -179,7 +178,7 @@ def train_single_epoch_focal_fd(net, optimizer, loader, criterion, old_model, ta
 		optimizer.step()
 	return net
 
-def train_single_epoch_iCarl(net, optimizer, loader, criterion, old_model, task_id=None):
+def train_single_epoch_iCarl(net, optimizer, loader, criterion, old_model, task_id=None, config=None, index=None):
 	"""
 	Train the model for a single epoch
 	
@@ -191,8 +190,7 @@ def train_single_epoch_iCarl(net, optimizer, loader, criterion, old_model, task_
 	:return:
 	"""
 	net = net.to(DEVICE)
-	loss_penalty = 1
-	loss_penalty2 = 1
+	loss_penalty = 0
 	outputs = []
 	outputs_old = []
 	
@@ -202,16 +200,15 @@ def train_single_epoch_iCarl(net, optimizer, loader, criterion, old_model, task_
 		target = target.to(DEVICE)
 		optimizer.zero_grad()
 
-		pred, feat = net(data, return_features=True)
+		pred = net(data)
 		if task_id > 1:
-			pred_old, feat_old = old_model(data, return_features=True)
+			pred_old = old_model(data)
 			outputs.append(pred)
 			outputs_old.append(pred_old)
-			loss_penalty = feature_distillation_penalty(feat, feat_old)
-			loss_penalty2 = icarl_penalty(outputs, outputs_old)
+			loss_penalty = icarl_penalty(outputs, outputs_old, config, index)
 			outputs = []
 			outputs_old = []
-		loss = criterion(pred, target) + loss_penalty2
+		loss = criterion(pred, target) + loss_penalty
 		loss.backward()
 		optimizer.step()
 	return net
@@ -427,7 +424,7 @@ def eval_single_epoch_ewc(net, loader, criterion, fisher, old_params, task_id=No
 	avg_acc = 100.0 * float(correct.numpy()) / len(loader.dataset)
 	return {'accuracy': avg_acc, 'loss': test_loss, 'ewcloss': ewc_loss}
 
-def eval_single_epoch_iCarl(net, loader, criterion, old_model, exemplar_means, task_id):
+def eval_single_epoch_iCarl(net, loader, criterion, old_model, exemplar_means, task_id, config=None, index=None):
 	"""
 	Evaluate the model for single epoch
 	
@@ -441,9 +438,7 @@ def eval_single_epoch_iCarl(net, loader, criterion, old_model, exemplar_means, t
 	net.eval()
 	test_loss = 0
 	loss_penalty = torch.tensor(1.0)
-	loss_penalty2 = torch.tensor(1.0)
 	hits = torch.tensor(1.0)
-	lwf_loss = 0
 	icarl_loss = 0
 	correct = 0
 	total_acc = 0
@@ -458,16 +453,14 @@ def eval_single_epoch_iCarl(net, loader, criterion, old_model, exemplar_means, t
 			
 			if task_id > 1:
 				_, hits = classify(feat, target, exemplar_means)
-				pred_old, feat_old = old_model(data, return_features=True) 
-				loss_penalty = feature_distillation_penalty(feat, feat_old)
+				pred_old = old_model(data) 
 				outputs.append(output)
 				outputs_old.append(pred_old)
-				loss_penalty2 = icarl_penalty(outputs, outputs_old)
+				loss_penalty = icarl_penalty(outputs, outputs_old, config, index)
 				outputs = []
 				outputs_old = []
 
-			test_loss += (criterion(output, target).item() + loss_penalty2.item()) * loader.batch_size
-			lwf_loss += loss_penalty.item() * loader.batch_size
+			test_loss += (criterion(output, target).item() + loss_penalty.item()) * loader.batch_size
 			icarl_loss += loss_penalty.item() * loader.batch_size
 			pred = output.data.max(1, keepdim=True)[1]
 			correct += pred.eq(target.data.view_as(pred)).sum()
@@ -476,7 +469,6 @@ def eval_single_epoch_iCarl(net, loader, criterion, old_model, exemplar_means, t
 			total_num += len(target)
 			
 	test_loss /= len(loader.dataset)
-	lwf_loss /= len(loader.dataset)
 	icarl_loss /= len(loader.dataset)
 
 	correct = correct.to('cpu')
@@ -635,9 +627,12 @@ def focal_fd_penalty(feat, feat_old, mask, config, index):
 
 	return loss
 
-def icarl_penalty(out, out_old):
+def icarl_penalty(out, out_old, config, index):
 
-	lamb = 1
+	if config is not None:
+		lamb = config["lambda"][index]
+	else:	
+		lamb = 1
 	g = torch.sigmoid(torch.cat(out))
 	q_i = torch.sigmoid(torch.cat(out_old))
 	loss = lamb * torch.nn.functional.binary_cross_entropy(g, q_i)

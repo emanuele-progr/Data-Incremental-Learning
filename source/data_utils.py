@@ -22,6 +22,37 @@ DATA_DIR = 'tiny-imagenet-200'  # Original images come in shapes of [3,64,64]
 TRAIN_DIR = os.path.join(DATA_DIR, 'train')
 VALID_DIR = os.path.join(DATA_DIR, 'val')
 
+
+def get_benchmark_data_loader(args):
+    """
+    Returns the benchmark loader which could be either of these:
+    get_split_cifar100_tasks, get_split_cifar100_tasks_joint, get_split_MNIST_tasks, get_split_cifar10_tasks,
+    get_split_cifar10_tasks_joint, get_split_tiny_ImageNet_tasks, get_split_tiny_ImageNet_tasks_joint
+
+    :param args:
+    :return: a function which when called, returns all tasks
+    """
+
+    if args.dataset == 'mnist':
+        return get_split_MNIST_tasks
+    elif args.dataset == 'cifar-100' or args.dataset == 'cifar100' and args.compute_joint_incremental:
+        return get_split_cifar100_tasks_joint
+    elif args.dataset == 'cifar-100' or args.dataset == 'cifar100' and args.compute_joint_incremental is False:
+        return get_split_cifar100_tasks
+    elif args.dataset == 'cifar-10' or args.dataset == 'cifar10' and args.compute_joint_incremental:
+        return get_split_cifar10_tasks_joint      
+    elif args.dataset == 'cifar-10' or args.dataset == 'cifar10' and args.compute_joint_incremental is False:
+        return get_split_cifar10_tasks
+    elif args.dataset == 'tiny-imagenet' or args.dataset == 'imagenet'and args.compute_joint_incremental is False:
+        return get_split_tiny_ImageNet_tasks
+    elif args.dataset == 'tiny-imagenet' or args.dataset == 'imagenet'and args.compute_joint_incremental:
+        return get_split_tiny_ImageNet_tasks_joint   
+    else:
+        raise Exception("Unknown dataset.\n" +
+                        "The code supports 'mnist, cifar-10, cifar-100 and imagenet.")
+
+                        
+
 class TinyImageNet(Dataset):
 	def __init__(self, root, train=True, transform=None):
 		self.Train = train

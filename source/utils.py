@@ -4,6 +4,7 @@ import copy
 import itertools
 import argparse
 import matplotlib
+import os
 import random
 import numpy as np
 import torch.nn as nn
@@ -25,10 +26,11 @@ SEED = 123
 
 def parse_arguments():
 	parser = argparse.ArgumentParser(description='Argument parser')
-	parser.add_argument('--resnet', default=32, type=int, help='resnet. options: 32, 18, 50')
+	parser.add_argument('--net', default='resnet32', type=str, help='net. options: resnet32, resnet18, resnet50')
 	parser.add_argument('--tasks', default=5, type=int, help='total number of tasks')
 	parser.add_argument('--epochs-per-task', default=1, type=int, help='epochs per task')
 	parser.add_argument('--dataset', default='cifar100', type=str, help='dataset. options: mnist, cifar10, cifar100, imagenet')
+	parser.add_argument('--approach', default='fine_tuning', type=str, help='incremental learning approach. options: ewc, lwf, icarl, fd, focal_kd, focal_fd')
 	parser.add_argument('--batch-size', default=64, type=int, help='batch-size')
 	parser.add_argument('--exemplars_per_class', default=0, type=int, help='# of exemplar per class at each task')
 	parser.add_argument('--lr', default=0.001, type=float, help='learning rate')
@@ -196,7 +198,7 @@ def post_train_process_freeze_model(model):
 
 
 
-def herdingExemplarsSelector(model, loader, task_id, num_exemplars):
+def herdingExemplarsSelector(model, loader, num_exemplars):
 
 	exemplars_per_class = num_exemplars
 
@@ -249,7 +251,7 @@ def herdingExemplarsSelector(model, loader, task_id, num_exemplars):
 	return final_result
 
 
-def randomExemplarsSelector(model, loader, task_id, num_exemplars, num_cls):
+def randomExemplarsSelector(loader, num_exemplars, num_cls):
 	exemplars_per_class = num_exemplars
 	result = []
 	final_result = []
@@ -327,7 +329,7 @@ def distanceExemplarsSelector(model, loader, task_id, num_exemplars):
 
 
 
-def compute_mean_of_exemplars(model, exemplars_loader, task_id):
+def compute_mean_of_exemplars(model, exemplars_loader):
 
 	extracted_features = []
 	extracted_targets = []
@@ -446,3 +448,27 @@ def count_parameters(model):
 		total_params+=param
 	print(table)
 	print(f"Total trainable params : {total_params}")
+
+
+def load_checkpoint(model, optimizer, filename='check.pth'):
+    # Note: Input model & optimizer should be pre-defined.  This routine only updates their states.
+    start_epoch = 0
+    if os.path.isfile(filename):
+        print("=> loading checkpoint '{}'".format(filename))
+        checkpoint = torch.load(filename)
+        #start_epoch = checkpoint['epoch']
+        model.load_state_dict(checkpoint['state_dict'])
+        optimizer.load_state_dict(checkpoint['optimizer'])
+        #history = checkpoint['history']
+        print("=> loaded checkpoint")
+    else:
+        print("=> no checkpoint found at '{}'".format(filename))
+
+    return model, optimizer
+
+
+def save_checkpoint_Adam(model, optimizer):
+    PATH = './check.pth'
+    state = {'state_dict': model.state_dict(
+    ), 'optimizer': optimizer.state_dict(), }
+    torch.save(state, PATH)
