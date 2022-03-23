@@ -705,3 +705,54 @@ def cross_entropy(outputs, targets, exp=1.0, size_average=True, eps=1e-5):
 	if size_average:
 		ce = ce.mean()
 	return ce
+
+
+def train_single_epoch_approach(approach, model, optimizer, train_loader, criterion,
+                                               old_params, old_model, fisher, current_task_id, config=None, index=None):
+	if approach == 'ewc':
+		train_single_epoch_ewc(
+			model, optimizer, train_loader, criterion, old_params, fisher, current_task_id, config, index)
+	elif approach == 'lwf':
+		train_single_epoch_lwf(
+			model, optimizer, train_loader, criterion, old_model, current_task_id, config, index)
+	elif approach == 'fd':
+		train_single_epoch_fd(
+			model, optimizer, train_loader, criterion, old_model, current_task_id, config, index) 
+	elif approach == 'focal_kd':
+		train_single_epoch_focal(
+			model, optimizer, train_loader, criterion, old_model, current_task_id, config, index)
+	elif approach == 'focal_fd':
+		train_single_epoch_focal_fd(
+			model, optimizer, train_loader, criterion, old_model, current_task_id, config, index)
+	elif approach == 'icarl':
+		train_single_epoch_iCarl(model, optimizer, train_loader, criterion, old_model, current_task_id, config, index)
+	else:
+		train_single_epoch(
+			model, optimizer, train_loader, criterion, current_task_id)
+
+
+
+def eval_single_epoch_approach(approach, model, val_loader, criterion, old_model,
+                                       old_params, fisher, exemplar_means, current_task_id, config=None, index=None):
+	if approach == 'ewc':
+		metrics = eval_single_epoch_ewc(
+			model, val_loader, criterion, fisher, old_params, current_task_id)
+	elif approach == 'lwf':
+		metrics = eval_single_epoch_lwf(
+			model, val_loader, criterion, old_model, current_task_id)
+	elif approach == 'fd':
+		metrics = eval_single_epoch_fd(
+			model, val_loader, criterion, old_model, current_task_id)   
+	elif approach == 'focal_kd':
+		metrics = eval_single_epoch_focal(
+			model, val_loader, criterion, old_model, current_task_id)
+	elif approach == 'focal_fd':
+		metrics = eval_single_epoch_focal_fd(
+			model, val_loader, criterion, old_model, current_task_id)
+	elif approach == 'icarl':                
+		metrics = eval_single_epoch_iCarl(model, val_loader, criterion, old_model, exemplar_means, current_task_id)
+	else:
+		metrics = eval_single_epoch(
+			model, val_loader, criterion, current_task_id)
+	
+	return metrics

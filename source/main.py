@@ -127,7 +127,6 @@ def run_experiment(args):
         train_loader = tasks[current_task_id]['train']
 
         exemplars_per_class = args.exemplars_per_class
-        counter = 0
 
         if current_task_id > 1:
             accumulator = train_loader.dataset
@@ -137,9 +136,6 @@ def run_experiment(args):
             train_loader = torch.utils.data.DataLoader(
                 accumulator, batch_size=args.batch_size, shuffle=True)
         print("training data in this task: {}".format(len(train_loader.dataset)))
-            
-        if (check == 1):
-            model, optimizer = load_checkpoint(model, optimizer, 'check.pth')
 
         exemplar_loader = tasks[current_task_id]['exemplar']
         for epoch in range(1, args.epochs_per_task+1):
@@ -149,49 +145,16 @@ def run_experiment(args):
             prev_opt = type(optimizer)(prev_model.parameters(), lr=args.lr)
             prev_opt.load_state_dict(optimizer.state_dict())
 
-            if args.approach == 'ewc':
-                train_single_epoch_ewc(
-                    model, optimizer, train_loader, criterion, old_params, fisher, current_task_id)
-            elif args.approach == 'lwf':
-                train_single_epoch_lwf(
-                    model, optimizer, train_loader, criterion, old_model, current_task_id)
-            elif args.approach == 'fd':
-                train_single_epoch_fd(
-                    model, optimizer, train_loader, criterion, old_model, current_task_id) 
-            elif args.approach == 'focal_kd':
-                train_single_epoch_focal(
-                    model, optimizer, train_loader, criterion, old_model, current_task_id)
-            elif args.approach == 'focal_fd':
-                train_single_epoch_focal_fd(
-                    model, optimizer, train_loader, criterion, old_model, current_task_id)
-            elif args.approach == 'icarl':
-                train_single_epoch_iCarl(model, optimizer, train_loader, criterion, old_model, current_task_id)
-            else:
-                train_single_epoch(
-                    model, optimizer, train_loader, criterion, current_task_id)
+            train_single_epoch_approach(args.approach, model, optimizer, train_loader, criterion,
+                                        old_params, old_model, fisher, current_task_id)
+
             time += 1
             model = model.to(DEVICE)
             val_loader = tasks[current_task_id]['val']
-            if args.approach == 'ewc':
-                metrics = eval_single_epoch_ewc(
-                    model, val_loader, criterion, fisher, old_params, current_task_id)
-            elif args.approach == 'lwf':
-                metrics = eval_single_epoch_lwf(
-                    model, val_loader, criterion, old_model, current_task_id)
-            elif args.approach == 'fd':
-                metrics = eval_single_epoch_fd(
-                    model, val_loader, criterion, old_model, current_task_id)   
-            elif args.approach == 'focal_kd':
-                metrics = eval_single_epoch_focal(
-                    model, val_loader, criterion, old_model, current_task_id)
-            elif args.approach == 'focal_fd':
-                metrics = eval_single_epoch_focal_fd(
-                    model, val_loader, criterion, old_model, current_task_id)
-            elif args.approach == 'icarl':                
-                metrics = eval_single_epoch_iCarl(model, val_loader, criterion, old_model, exemplar_means, current_task_id)
-            else:
-                metrics = eval_single_epoch(
-                    model, val_loader, criterion, current_task_id)
+
+            metrics = eval_single_epoch_approach(args.approach, model, val_loader, criterion, old_model,
+                                       old_params, fisher, exemplar_means, current_task_id)
+
 
             acc_db, loss_db = log_metrics(
                 metrics, time, current_task_id, acc_db, loss_db)
@@ -233,7 +196,8 @@ def run_experiment(args):
                 else:
                     metrics, X, Y = final_eval(model, test_loader, criterion, current_task_id)
                 pred_vector = make_prediction_vector(X, Y)
-                print('forgetting : {}'.format(forgetting_metric(pred_vector,
+                if current_task_id > 1:
+                    print('forgetting : {}'.format(forgetting_metric(pred_vector,
                       pred_vector_list, current_task_id)))
                 accuracy_results.append(metrics['accuracy'])
                 forgetting_result.append(forgetting_metric(
@@ -290,7 +254,8 @@ def run_experiment(args):
                     metrics, X, Y = final_eval(model, test_loader, criterion, current_task_id)
 
                 pred_vector = make_prediction_vector(X, Y)
-                print('forgetting : {}'.format(forgetting_metric(pred_vector,
+                if current_task_id > 1:
+                    print('forgetting : {}'.format(forgetting_metric(pred_vector,
                       pred_vector_list, current_task_id)))
                 accuracy_results.append(metrics['accuracy'])
                 forgetting_result.append(forgetting_metric(
@@ -420,49 +385,15 @@ def tuning_on_task2(args):
                 prev_model.load_state_dict(model.state_dict())
                 prev_opt = type(optimizer)(prev_model.parameters(), lr=args.lr)
                 prev_opt.load_state_dict(optimizer.state_dict())
-                if args.approach == 'ewc':
-                    train_single_epoch_ewc(
-                        model, optimizer, train_loader, criterion, old_params, fisher, current_task_id)
-                elif args.approach == 'lwf':
-                    train_single_epoch_lwf(
-                        model, optimizer, train_loader, criterion, old_model, current_task_id)
-                elif args.approach == 'fd':
-                    train_single_epoch_fd(
-                        model, optimizer, train_loader, criterion, old_model, current_task_id) 
-                elif args.approach == 'focal_kd':
-                    train_single_epoch_focal(
-                        model, optimizer, train_loader, criterion, old_model, current_task_id)
-                elif args.approach == 'focal_fd':
-                    train_single_epoch_focal_fd(
-                        model, optimizer, train_loader, criterion, old_model, current_task_id)
-                elif args.approach == 'icarl':
-                    train_single_epoch_iCarl(model, optimizer, train_loader, criterion, old_model, current_task_id)
-                else:
-                    train_single_epoch(
-                        model, optimizer, train_loader, criterion, current_task_id)
+
+                train_single_epoch_approach(args.approach, model, optimizer, train_loader, criterion,
+                                            old_params, old_model, fisher, current_task_id)
                 time += 1
                 model = model.to(DEVICE)
                 val_loader = tasks[current_task_id]['val']
-                if args.approach == 'ewc':
-                    metrics = eval_single_epoch_ewc(
-                        model, val_loader, criterion, fisher, old_params, current_task_id)
-                elif args.approach == 'lwf':
-                    metrics = eval_single_epoch_lwf(
-                        model, val_loader, criterion, old_model, current_task_id)
-                elif args.approach == 'fd':
-                    metrics = eval_single_epoch_fd(
-                        model, val_loader, criterion, old_model, current_task_id)   
-                elif args.approach == 'focal_kd':
-                    metrics = eval_single_epoch_focal(
-                        model, val_loader, criterion, old_model, current_task_id)
-                elif args.approach == 'focal_fd':
-                    metrics = eval_single_epoch_focal_fd(
-                        model, val_loader, criterion, old_model, current_task_id)
-                elif args.approach == 'icarl':                
-                    metrics = eval_single_epoch_iCarl(model, val_loader, criterion, old_model, exemplar_means, current_task_id)
-                else:
-                    metrics = eval_single_epoch(
-                        model, val_loader, criterion, current_task_id)
+
+                metrics = eval_single_epoch_approach(args.approach, model, val_loader, criterion, old_model,
+                                        old_params, fisher, exemplar_means, current_task_id)
 
                 acc_db, loss_db = log_metrics(
                     metrics, time, current_task_id, acc_db, loss_db)
@@ -589,49 +520,14 @@ def tuning_on_task2(args):
                     prev_opt = type(optimizer)(
                         prev_model.parameters(), lr=args.lr)
                     prev_opt.load_state_dict(optimizer.state_dict())
-                    if args.approach == 'ewc':
-                        train_single_epoch_ewc(
-                            model, optimizer, train_loader, criterion, old_params, fisher, current_task_id, config, index)
-                    elif args.approach == 'lwf':
-                        train_single_epoch_lwf(
-                            model, optimizer, train_loader, criterion, old_model, current_task_id, config, index)
-                    elif args.approach == 'fd':
-                        train_single_epoch_fd(
-                            model, optimizer, train_loader, criterion, old_model, current_task_id, config, index) 
-                    elif args.approach == 'focal_kd':
-                        train_single_epoch_focal(
-                            model, optimizer, train_loader, criterion, old_model, current_task_id, config, index)
-                    elif args.approach == 'focal_fd':
-                        train_single_epoch_focal_fd(
-                            model, optimizer, train_loader, criterion, old_model, current_task_id, config, index)
-                    elif args.approach == 'icarl':
-                        train_single_epoch_iCarl(model, optimizer, train_loader, criterion, old_model, current_task_id, config, index)
-                    else:
-                        train_single_epoch(
-                            model, optimizer, train_loader, criterion, current_task_id)
+
+                    train_single_epoch_approach(args.approach, model, optimizer, train_loader, criterion,
+                                                old_params, old_model, fisher, current_task_id, config, index)
                     time += 1
                     model = model.to(DEVICE)
                     val_loader = tasks[current_task_id]['val']
-                    if args.approach == 'ewc':
-                        metrics = eval_single_epoch_ewc(
-                            model, val_loader, criterion, fisher, old_params, current_task_id, config, index)
-                    elif args.approach == 'lwf':
-                        metrics = eval_single_epoch_lwf(
-                            model, val_loader, criterion, old_model, current_task_id, config, index)
-                    elif args.approach == 'fd':
-                        metrics = eval_single_epoch_fd(
-                            model, val_loader, criterion, old_model, current_task_id, config, index)   
-                    elif args.approach == 'focal_kd':
-                        metrics = eval_single_epoch_focal(
-                            model, val_loader, criterion, old_model, current_task_id, config, index)
-                    elif args.approach == 'focal_fd':
-                        metrics = eval_single_epoch_focal_fd(
-                            model, val_loader, criterion, old_model, current_task_id, config, index)
-                    elif args.approach == 'icarl':                
-                        metrics = eval_single_epoch_iCarl(model, val_loader, criterion, old_model, exemplar_means, current_task_id, config, index)
-                    else:
-                        metrics = eval_single_epoch(
-                            model, val_loader, criterion, current_task_id)
+                    metrics = eval_single_epoch_approach(args.approach, model, val_loader, criterion, old_model,
+                                            old_params, fisher, exemplar_means, current_task_id, config, index)
 
                     acc_db, loss_db = log_metrics(
                         metrics, time, current_task_id, acc_db, loss_db)
