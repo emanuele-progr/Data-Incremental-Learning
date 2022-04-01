@@ -7,17 +7,21 @@ The peculiarity of this scenario is that we start with a few examples per class 
 Code started from [here](https://github.com/imirzadeh/stable-continual-learning) and was subsequently modified and strongly expanded for the data-incremental scenario. Also, many class-incremental learning approaches implemented in [FACIL](https://github.com/mmasana/FACIL) have been adapted to the data-incremental scenario.
 ## Approaches
 ### Elastic Weight Consolidation
+```bash
 -- approach ewc [arxiv](https://arxiv.org/abs/1612.00796)
-
+```
 ### Learning Without Forgetting
+```bash
 --approach lwf [arxiv](https://arxiv.org/abs/1606.09282)
-
+```
 ### iCaRL
+```bash
 --approach icarl [arxiv](https://arxiv.org/abs/1611.07725)| [code](https://github.com/srebuffi/iCaRL)
-
+```
 ### Focal distillation
+```bash
 --approach focal_d [arxiv](https://arxiv.org/abs/2011.09161)
-
+```
 
 ## Installation
 
