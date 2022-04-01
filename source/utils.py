@@ -20,9 +20,10 @@ from prettytable import PrettyTable
 
 TRIAL_ID = uuid.uuid4().hex.upper()[0:6]
 EXPERIMENT_DIRECTORY = './outputs/{}'.format(TRIAL_ID)
-DEVICE = "cuda:1" if torch.cuda.is_available() else 'cpu'
+DEVICE = "cuda" if torch.cuda.is_available() else 'cpu'
 SEED = 123
 
+# argument parser
 
 def parse_arguments():
 	parser = argparse.ArgumentParser(description='Argument parser')
@@ -30,7 +31,7 @@ def parse_arguments():
 	parser.add_argument('--tasks', default=5, type=int, help='total number of tasks')
 	parser.add_argument('--epochs-per-task', default=1, type=int, help='epochs per task')
 	parser.add_argument('--dataset', default='cifar100', type=str, help='dataset. options: mnist, cifar10, cifar100, imagenet')
-	parser.add_argument('--approach', default='fine_tuning', type=str, help='incremental learning approach. options: ewc, lwf, icarl, fd, focal_kd, focal_fd')
+	parser.add_argument('--approach', default='fine_tuning', type=str, help='incremental learning approach. options: ewc, lwf, icarl, fd, focal_d, focal_fd')
 	parser.add_argument('--batch-size', default=64, type=int, help='batch-size')
 	parser.add_argument('--exemplars_per_class', default=0, type=int, help='# of exemplar per class at each task')
 	parser.add_argument('--lr', default=0.001, type=float, help='learning rate')
@@ -46,6 +47,8 @@ def parse_arguments():
 
 def get_seed() :
 	return SEED
+
+# function to setup experiments
 
 def init_experiment(args):
 	print('------------------- Experiment started -----------------')
@@ -67,32 +70,11 @@ def init_experiment(args):
 	# 3. create data structures to store metrics
 	loss_db = {t: [0 for i in range(args.tasks*args.epochs_per_task)] for t in range(1, args.tasks+1)}
 	acc_db =  {t: [0 for i in range(args.tasks*args.epochs_per_task)] for t in range(1, args.tasks+1)}
-	hessian_eig_db = {}
-	return acc_db, loss_db, hessian_eig_db
+
+	return acc_db, loss_db
 
 
-def end_experiment(args, acc_db, loss_db, hessian_eig_db):
-	
-	# 1. save all metrics into csv file
-	acc_df = pd.DataFrame(acc_db)
-	acc_df.to_csv(EXPERIMENT_DIRECTORY+'/accs.csv')
-	visualize_result(acc_df, EXPERIMENT_DIRECTORY+'/accs.png')
-	
-	loss_df = pd.DataFrame(loss_db)
-	loss_df.to_csv(EXPERIMENT_DIRECTORY+'/loss.csv')
-	visualize_result(loss_df, EXPERIMENT_DIRECTORY+'/loss.png')
-	
-	hessian_df = pd.DataFrame(hessian_eig_db)
-	hessian_df.to_csv(EXPERIMENT_DIRECTORY+'/hessian_eigs.csv')
-	
-	# 2. calculate average accuracy and forgetting (c.f. ``evaluation`` section in our paper)
-	score = np.mean([acc_db[i][-1] for i in acc_db.keys()])
-	forget = np.mean([max(acc_db[i])-acc_db[i][-1] for i in range(1, args.tasks)])/100.0
-	
-	print('average accuracy = {}, forget = {}'.format(score, forget))
-	print()
-	print('------------------- Experiment ended -----------------')
-	
+# function to store results
 
 def data_to_csv( acc_db, forgetting, task_counter, lambda_value =None, alpha_value=None, beta_value=None):
 
@@ -112,7 +94,7 @@ def data_to_csv( acc_db, forgetting, task_counter, lambda_value =None, alpha_val
 	df.to_csv(EXPERIMENT_DIRECTORY + '/RESULTS', sep= ';', index = False)
 
 
-
+# function to log accuracy and loss
 
 def log_metrics(metrics, time, task_id, acc_db, loss_db):
 	"""
@@ -126,7 +108,7 @@ def log_metrics(metrics, time, task_id, acc_db, loss_db):
 	acc_db[task_id][time-1] = acc
 	return acc_db, loss_db
 
-
+# function to save model checkpoint to restart training later
 
 def save_checkpoint(model, time):
 	"""
@@ -137,12 +119,37 @@ def save_checkpoint(model, time):
 	filename = '{directory}/model-{trial}-{time}.pth'.format(directory=EXPERIMENT_DIRECTORY, trial=TRIAL_ID, time=time)
 	torch.save(model.cpu().state_dict(), filename)
 
+# function to load model+optimizer checkpoint
+
+def load_checkpoint(model, optimizer, filename='check.pth'):
+    # Note: Input model & optimizer should be pre-defined.  This routine only updates their states.
+    start_epoch = 0
+    if os.path.isfile(filename):
+        print("=> loading checkpoint '{}'".format(filename))
+        checkpoint = torch.load(filename)
+        model.load_state_dict(checkpoint['state_dict'])
+        optimizer.load_state_dict(checkpoint['optimizer'])
+        print("=> loaded checkpoint")
+    else:
+        print("=> no checkpoint found at '{}'".format(filename))
+
+    return model, optimizer
+
+# function to save Adam checkpoint (model+optimizer)
+
+def save_checkpoint_Adam(model, optimizer):
+    PATH = './check.pth'
+    state = {'state_dict': model.state_dict(
+    ), 'optimizer': optimizer.state_dict(), }
+    torch.save(state, PATH)
+
 
 def visualize_result(df, filename):
 	ax = sns.lineplot(data=df,  dashes=False)
 	ax.figure.savefig(filename, dpi=250)
 	plt.close()
 
+# function to compute fisher matrix
 
 def compute_fisher_matrix_diag(train_loader, model, optimizer, current_task_id, sampling_type='true'):
 
@@ -160,6 +167,8 @@ def compute_fisher_matrix_diag(train_loader, model, optimizer, current_task_id, 
 		optimizer.zero_grad()
 		loss.backward()
 		for n, p in model.named_parameters():
+			# if and elif to exclude linear and batch norm layers
+
 			if n == 'linear.weight' or n == 'linear.bias':
 				pass
 			elif n == 'bn1.weight' or n == 'bn1.bias':
@@ -175,7 +184,7 @@ def compute_fisher_matrix_diag(train_loader, model, optimizer, current_task_id, 
 
 	return fisher
 
-
+# function to compute fisher and update fisher keys after training
 
 def post_train_process_ewc(train_loader, model, optimizer, current_task_id, fisher):
 
@@ -188,6 +197,8 @@ def post_train_process_ewc(train_loader, model, optimizer, current_task_id, fish
 
 	return fisher
 
+# function to freeze and return old model (used in distillation approaches)
+
 def post_train_process_freeze_model(model):
 
 	model_old = copy.deepcopy(model)
@@ -198,7 +209,173 @@ def post_train_process_freeze_model(model):
 
 
 
+
+# function o compute mean of exemplars (used in ICaRL approach)
+
+def compute_mean_of_exemplars(model, exemplars_loader):
+
+	extracted_features = []
+	extracted_targets = []
+	exemplar_means = []
+
+	# extract features from the model for all train samples
+    # "all feature vectors are L2-normalized, and the results of any operation on feature vectors,
+    # e.g. averages are also re-normalized, which we do not write explicitly to avoid a cluttered notation."
+	with torch.no_grad():
+		model.eval()
+		for images, targets in exemplars_loader:
+			targets.to('cpu')
+			_, feats = model(images.to(DEVICE), return_features=True)
+			# normalize
+			extracted_features.append(feats / feats.norm(dim=1).view(-1, 1))
+			extracted_targets.extend(targets)
+	extracted_features = (torch.cat(extracted_features)).cpu()
+	extracted_targets = np.array(extracted_targets)
+	for curr_cls in np.unique(extracted_targets):
+		# get all indices from current class
+		cls_ind = np.where(extracted_targets == curr_cls)[0]
+		# get all extracted features for current class
+		cls_feats = extracted_features[cls_ind]
+		# add the exemplars to the set and normalize
+		cls_feats_mean = cls_feats.mean(0) / cls_feats.mean(0).norm()
+		exemplar_means.append(cls_feats_mean)
+
+	return exemplar_means
+
+# function to plot results confusion matrix
+
+def plot_conf_matrix(matrix):
+
+    plt.figure(1, figsize=(9, 6))
+    plt.title("Confusion Matrix")
+    df_cm = pd.DataFrame(matrix, range(len(matrix[0])), range(len(matrix[0])))
+    sns.set(font_scale=1.4)
+    sns.heatmap(df_cm, annot=True, annot_kws={"size": 12},  fmt='g') 
+    plt.savefig("confmatrix", bbox_inches='tight', dpi=300)
+    plt.show()
+    plt.close()
+
+# function to build a prediction vector(one-hot)
+
+def make_prediction_vector(X, Y):
+	pred_vector = [0] * len(X)
+	for i in range(len(X)):
+		if X[i] == Y[i]:
+			pred_vector[i] = 1
+
+	return pred_vector
+
+# function to count common predictions between two prediction vectors
+
+def count_common_pred(pred_vector1, pred_vector2):
+	count = 0
+	for i in range(len(pred_vector2)):
+		if pred_vector2[i] == 1:
+			count += pred_vector1[i]
+	
+	return count
+
+# function to compute forgetting in a data-incremental learning scenario
+
+def forgetting_metric(current_pred_vector, pred_vector_list, current_task_id):
+	num = 0
+	den = 0
+	for i in reversed(range(current_task_id)):
+		if i > 0:
+			num += count_common_pred(current_pred_vector, pred_vector_list[i])
+			den += sum(pred_vector_list[i])
+	
+	if current_task_id > 1:
+		remembering = float(num)/den
+	else:
+		remembering = 0
+
+	forgetting = 1 - remembering
+
+	return forgetting
+
+# function to analyze fetures PCA components
+
+def get_PCA_components(features):
+
+    x = StandardScaler().fit_transform(features[0])
+    pca = PCA(n_components=2)
+
+    principalComponents = pca.fit_transform(x)
+    principalDf = pd.DataFrame(data=principalComponents, columns = ['principal component 1', 'principal component 2'])
+
+    fig = plt.figure(figsize=(8, 8))
+    ax = fig.add_subplot(1, 1, 1)
+    legend = ['task_1', 'task_5', 'task_10']
+    ax.set_xlabel('Principal Component 1', fontsize=15)
+    ax.set_ylabel('Principal Component 2', fontsize=15)
+    ax.set_title('2 component PCA', fontsize=20)
+    ax.scatter(principalDf.loc[:, 'principal component 1'], principalDf.loc[:, 'principal component 2'], c='r', s = 50)
+
+    x = StandardScaler().fit_transform(features[4])
+    pca = PCA(n_components=2)
+
+    principalComponents = pca.fit_transform(x)
+    principalDf = pd.DataFrame(data=principalComponents, columns = ['principal component 1', 'principal component 2'])
+
+    ax.scatter(principalDf.loc[:, 'principal component 1'], principalDf.loc[:, 'principal component 2'], c='g', s = 50)
+
+    x = StandardScaler().fit_transform(features[9])
+    pca = PCA(n_components=2)
+
+    principalComponents = pca.fit_transform(x)
+    principalDf = pd.DataFrame(data=principalComponents, columns = ['principal component 1', 'principal component 2'])
+
+    ax.scatter(principalDf.loc[:, 'principal component 1'], principalDf.loc[:, 'principal component 2'], c='b', s = 50)
+    ax.legend(legend)
+    ax.grid()
+    fig.savefig('features_pca.png')
+
+
+# function to count and display model parameters
+
+def count_parameters(model):
+	table = PrettyTable(["Modules", "Parameters"])
+	total_params = 0
+	for name, parameter in model.named_parameters():
+		if not parameter.requires_grad: continue
+		param = parameter.numel()
+		table.add_row([name, param])
+		total_params+=param
+	print(table)
+	print(f"Total trainable params : {total_params}")
+
+
+
+# exemplar selection routines
+
+def randomExemplarsSelector(loader, num_exemplars, num_cls):
+	"""Selection of new samples. This is based on random selection, which produces a random list of samples."""
+
+	exemplars_per_class = num_exemplars
+	result = []
+	final_result = []
+	targets = np.array([])
+	for data, target in loader:
+		arr = target.cpu().detach().numpy()
+		targets = np.concatenate([targets, arr])
+	labels = targets
+	for curr_cls in range(num_cls):
+		cls_ind = np.where(labels == curr_cls)[0]
+		result.append(random.sample(list(cls_ind), exemplars_per_class))
+	for i in range(exemplars_per_class):
+		for cls in range(num_cls):
+			final_result.append(result[cls][i])
+
+	
+	return final_result
+
+
 def herdingExemplarsSelector(model, loader, num_exemplars):
+	"""Selection of new samples. This is based on herding selection, which produces a sorted list of samples of one
+    class based on the distance to the mean sample of that class. From iCaRL algorithm 4 and 5:
+    https://openaccess.thecvf.com/content_cvpr_2017/papers/Rebuffi_iCaRL_Incremental_Classifier_CVPR_2017_paper.pdf
+    """
 
 	exemplars_per_class = num_exemplars
 
@@ -251,29 +428,11 @@ def herdingExemplarsSelector(model, loader, num_exemplars):
 	return final_result
 
 
-def randomExemplarsSelector(loader, num_exemplars, num_cls):
-	exemplars_per_class = num_exemplars
-	result = []
-	final_result = []
-	targets = np.array([])
-	for data, target in loader:
-		arr = target.cpu().detach().numpy()
-		targets = np.concatenate([targets, arr])
-	labels = targets
-	for curr_cls in range(num_cls):
-		cls_ind = np.where(labels == curr_cls)[0]
-		result.append(random.sample(list(cls_ind), exemplars_per_class))
-	for i in range(exemplars_per_class):
-		for cls in range(num_cls):
-			final_result.append(result[cls][i])
 
-	
-	return final_result
-
-
-
-
-def entropyExemplarsSelector(model, loader, task_id,  num_exemplars):
+def entropyExemplarsSelector(model, loader,  num_exemplars):
+	"""Selection of new samples. This is based on entropy selection, which produces a sorted list of samples of one
+    class based on entropy of each sample. From RWalk http://arxiv-export-lb.library.cornell.edu/pdf/1801.10112
+    """
 
 	extracted_logits = []
 	extracted_targets = []
@@ -300,7 +459,11 @@ def entropyExemplarsSelector(model, loader, task_id,  num_exemplars):
 
 
 
-def distanceExemplarsSelector(model, loader, task_id, num_exemplars):
+def distanceExemplarsSelector(model, loader, num_exemplars):
+	"""Selection of new samples. This is based on distance-based selection, which produces a sorted list of samples of
+    one class based on closeness to decision boundary of each sample. From RWalk
+    http://arxiv-export-lb.library.cornell.edu/pdf/1801.10112
+    """
 
 	exemplars_per_class = num_exemplars
 
@@ -328,147 +491,3 @@ def distanceExemplarsSelector(model, loader, task_id, num_exemplars):
 
 
 
-
-def compute_mean_of_exemplars(model, exemplars_loader):
-
-	extracted_features = []
-	extracted_targets = []
-	exemplar_means = []
-
-	
-	with torch.no_grad():
-		model.eval()
-		for images, targets in exemplars_loader:
-			targets.to('cpu')
-			_, feats = model(images.to(DEVICE), return_features=True)
-			# normalize
-			extracted_features.append(feats / feats.norm(dim=1).view(-1, 1))
-			extracted_targets.extend(targets)
-	extracted_features = (torch.cat(extracted_features)).cpu()
-	extracted_targets = np.array(extracted_targets)
-	for curr_cls in np.unique(extracted_targets):
-		# get all indices from current class
-		cls_ind = np.where(extracted_targets == curr_cls)[0]
-		# get all extracted features for current class
-		cls_feats = extracted_features[cls_ind]
-		# add the exemplars to the set and normalize
-		cls_feats_mean = cls_feats.mean(0) / cls_feats.mean(0).norm()
-		exemplar_means.append(cls_feats_mean)
-
-	return exemplar_means
-
-
-def plot_conf_matrix(matrix):
-
-    plt.figure(1, figsize=(9, 6))
- 
-    plt.title("Confusion Matrix")
-    df_cm = pd.DataFrame(matrix, range(len(matrix[0])), range(len(matrix[0])))
-    sns.set(font_scale=1.4)
-    sns.heatmap(df_cm, annot=True, annot_kws={"size": 12},  fmt='g') 
-    plt.savefig("confmatrix", bbox_inches='tight', dpi=300)
-    plt.show()
-    plt.close()
-
-
-
-def make_prediction_vector(X, Y):
-	pred_vector = [0] * len(X)
-	for i in range(len(X)):
-		if X[i] == Y[i]:
-			pred_vector[i] = 1
-
-	return pred_vector
-
-def count_common_pred(pred_vector1, pred_vector2):
-	count = 0
-	for i in range(len(pred_vector2)):
-		if pred_vector2[i] == 1:
-			count += pred_vector1[i]
-	
-	return count
-
-def forgetting_metric(current_pred_vector, pred_vector_list, current_task_id):
-	num = 0
-	den = 0
-	for i in reversed(range(current_task_id)):
-		if i > 0:
-			num += count_common_pred(current_pred_vector, pred_vector_list[i])
-			den += sum(pred_vector_list[i])
-	
-	if current_task_id > 1:
-		forgetting = float(num)/den
-	else:
-		forgetting = 0
-
-	return 1 - forgetting
-
-def get_PCA_components(features):
-
-    x = StandardScaler().fit_transform(features[0])
-    pca = PCA(n_components=2)
-
-    principalComponents = pca.fit_transform(x)
-    principalDf = pd.DataFrame(data=principalComponents, columns = ['principal component 1', 'principal component 2'])
-
-    fig = plt.figure(figsize=(8, 8))
-    ax = fig.add_subplot(1, 1, 1)
-    legend = ['task_1', 'task_5', 'task_10']
-    ax.set_xlabel('Principal Component 1', fontsize=15)
-    ax.set_ylabel('Principal Component 2', fontsize=15)
-    ax.set_title('2 component PCA', fontsize=20)
-    ax.scatter(principalDf.loc[:, 'principal component 1'], principalDf.loc[:, 'principal component 2'], c='r', s = 50)
-
-    x = StandardScaler().fit_transform(features[4])
-    pca = PCA(n_components=2)
-
-    principalComponents = pca.fit_transform(x)
-    principalDf = pd.DataFrame(data=principalComponents, columns = ['principal component 1', 'principal component 2'])
-
-    ax.scatter(principalDf.loc[:, 'principal component 1'], principalDf.loc[:, 'principal component 2'], c='g', s = 50)
-
-    x = StandardScaler().fit_transform(features[9])
-    pca = PCA(n_components=2)
-
-    principalComponents = pca.fit_transform(x)
-    principalDf = pd.DataFrame(data=principalComponents, columns = ['principal component 1', 'principal component 2'])
-
-    ax.scatter(principalDf.loc[:, 'principal component 1'], principalDf.loc[:, 'principal component 2'], c='b', s = 50)
-    ax.legend(legend)
-    ax.grid()
-    fig.savefig('prova.png')
-
-def count_parameters(model):
-	table = PrettyTable(["Modules", "Parameters"])
-	total_params = 0
-	for name, parameter in model.named_parameters():
-		if not parameter.requires_grad: continue
-		param = parameter.numel()
-		table.add_row([name, param])
-		total_params+=param
-	print(table)
-	print(f"Total trainable params : {total_params}")
-
-
-def load_checkpoint(model, optimizer, filename='check.pth'):
-    # Note: Input model & optimizer should be pre-defined.  This routine only updates their states.
-    start_epoch = 0
-    if os.path.isfile(filename):
-        print("=> loading checkpoint '{}'".format(filename))
-        checkpoint = torch.load(filename)
-        #start_epoch = checkpoint['epoch']
-        model.load_state_dict(checkpoint['state_dict'])
-        optimizer.load_state_dict(checkpoint['optimizer'])
-        #history = checkpoint['history']
-        print("=> loaded checkpoint")
-    else:
-        print("=> no checkpoint found at '{}'".format(filename))
-
-    return model, optimizer
-
-
-def save_checkpoint_Adam(model, optimizer):
-    PATH = './check.pth'
-    state = {'state_dict': model.state_dict(
-    ), 'optimizer': optimizer.state_dict(), }
-    torch.save(state, PATH)

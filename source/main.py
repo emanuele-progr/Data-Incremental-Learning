@@ -1,4 +1,5 @@
 import os
+import json
 import torch
 import math
 import numpy as np
@@ -36,6 +37,7 @@ def get_benchmark_model(args):
             return ResNet32(nclasses=10, config={'dropout': args.dropout}).to(DEVICE)
         elif 'imagenet' in args.dataset:
             TRAIN_CLASSES = 200
+            organize_validation_data_tiny_ImageNet()
             return ResNet32(nclasses=200, config={'dropout': args.dropout}).to(DEVICE)
         else:
             raise Exception("Unknown dataset.\n" +
@@ -52,6 +54,7 @@ def get_benchmark_model(args):
             return ResNet18(nclasses=10, config={'dropout': args.dropout}).to(DEVICE)
         elif 'imagenet' in args.dataset:
             TRAIN_CLASSES = 200
+            organize_validation_data_tiny_ImageNet()
             return ResNet18(nclasses=200, config={'dropout': args.dropout}).to(DEVICE)
         else:
             raise Exception("Unknown dataset.\n" +
@@ -69,6 +72,7 @@ def get_benchmark_model(args):
             return ResNet50(nclasses=10, config={'dropout': args.dropout}).to(DEVICE)
         elif 'imagenet' in args.dataset:
             TRAIN_CLASSES = 200
+            organize_validation_data_tiny_ImageNet()
             return ResNet50(nclasses=200, config={'dropout': args.dropout}).to(DEVICE)
         else:
             raise Exception("Unknown dataset.\n" +
@@ -82,8 +86,8 @@ def get_benchmark_model(args):
 
 def run_experiment(args):
 
-    # organize_validation_data_tiny_ImageNet()
-    acc_db, loss_db, hessian_eig_db = init_experiment(args)
+    
+    acc_db, loss_db = init_experiment(args)
     tasks = get_benchmark_data_loader(args)(args.tasks, args.batch_size)
     model = get_benchmark_model(args)
 
@@ -94,7 +98,6 @@ def run_experiment(args):
     the_last_loss = 100
     patience = 30
     trigger_times = 0
-    check = 0
     old_model = 0
     pred_vector_list = [[0]]
     exemplars_vector_list = []
@@ -142,7 +145,7 @@ def run_experiment(args):
 
             prev_model = get_benchmark_model(args)
             prev_model.load_state_dict(model.state_dict())
-            prev_opt = type(optimizer)(prev_model.parameters(), lr=args.lr)
+            prev_opt = type(optimizer)(prev_model.parameters(), lr=lr)
             prev_opt.load_state_dict(optimizer.state_dict())
 
             train_single_epoch_approach(args.approach, model, optimizer, train_loader, criterion,
@@ -164,7 +167,7 @@ def run_experiment(args):
                     backup_model = get_benchmark_model(args)
                     backup_model.load_state_dict(prev_model.state_dict())
                     backup_opt = type(prev_opt)(
-                        backup_model.parameters(), lr=args.lr)
+                        backup_model.parameters(), lr=lr)
                     backup_opt.load_state_dict(prev_opt.state_dict())
                 trigger_times += 1
                 print('trigger times:', trigger_times)
@@ -173,7 +176,7 @@ def run_experiment(args):
             if trigger_times >= patience:
                 print('Early stopping!')
                 model = backup_model.to(DEVICE)
-                optimizer = type(backup_opt)(model.parameters(), lr=args.lr)
+                optimizer = type(backup_opt)(model.parameters(), lr=lr)
                 optimizer.load_state_dict(backup_opt.state_dict())
                 test_loader = tasks[current_task_id]['test']
                 
@@ -229,7 +232,7 @@ def run_experiment(args):
                     model.load_state_dict(backup_model.state_dict())
                     model = model.to(DEVICE)
                     optimizer = type(backup_opt)(
-                        model.parameters(), lr=args.lr)
+                        model.parameters(), lr=lr)
                     optimizer.load_state_dict(backup_opt.state_dict())
                 else:
                     model = model.to(DEVICE)
@@ -275,9 +278,6 @@ def run_experiment(args):
                 time = 0
                 trigger_times = 0
                 the_last_loss = 100
-                #mean = compute_mean_of_exemplars(
-                #    model, train_loader, current_task_id)
-                #mean_vector.append(torch.stack(mean).numpy())
 
     # get_PCA_components(mean_vector)
     data_to_csv(accuracy_results, forgetting_result, task_counter)
@@ -285,38 +285,14 @@ def run_experiment(args):
 
 
 
-
-
-
-config = {
-    #"lambda": [0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.08, 0.08, 0.08, 0.08, 0.08, 0.08, 0.08, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05],
-    #"lambda": [1, 1, 1, 1, 1, 1, 1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.01, 0.01, 0.01, 0.01, 0.01, 0.01, 0.01],
-    "lambda": [0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.01, 0.01, 0.01, 0.01, 0.01, 0.01, 0.01, 0.001, 0.001, 0.001, 0.001, 0.001, 0.001, 0.001],
-    "alpha": [0, 1, 1, 1, 1, 1, 1, 0, 1, 1, 1, 1, 1, 1, 0, 1, 1, 1, 1, 1, 1 ],
-    "beta": [1, 0, 1, 2, 5, 10, 20, 1, 0, 1, 2, 5, 10, 20, 1, 0, 1, 2, 5, 10, 20]
-
-    #"lambda": [1, 1, 1, 1, 1, 1, 1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1],
-    #"alpha": [0, 1, 1, 1, 1, 1, 1, 0, 1, 1, 1, 1, 1, 1],
-    #"beta": [1, 0, 1, 2, 5, 10, 20, 1, 0, 1, 2, 5, 10, 20]
-    #"lambda": [0.01, 0.01, 0.01, 0.01, 0.01, 0.01, 0.01],
-    #"alpha": [0, 1, 1, 1, 1, 1, 1],
-    #"beta": [1, 0, 1, 2, 5, 10, 20]
-
-    #"lambda": [0.001, 0.01, 0.1, 1, 10, 100, 1000],
-    #"alpha": [1, 1, 1, 1, 1, 1, 1],
-    #"beta": [0, 0, 0, 0, 0, 0, 0]
-
-
-}
-
-
 def tuning_on_task2(args):
 
-    # organize_validation_data_tiny_ImageNet()
-    acc_db, loss_db, hessian_eig_db = init_experiment(args)
+    with open('grid_search_config.txt') as f:
+        data = f.read()
+    config = json.loads(data)
+    acc_db, loss_db = init_experiment(args)
     tasks = get_benchmark_data_loader(args)(args.tasks, args.batch_size)
     model = get_benchmark_model(args)
-    # count_parameters(model)
 
     # criterion
     criterion = nn.CrossEntropyLoss().to(DEVICE)
@@ -324,7 +300,6 @@ def tuning_on_task2(args):
     the_last_loss = 100
     patience = 30
     trigger_times = 0
-    check = 0
     old_model = 0
     lambda_value = []
     alpha_value = []
@@ -335,7 +310,6 @@ def tuning_on_task2(args):
     forgetting_result = []
     task_counter = []
     exemplar_means = []
-    mean_vector = []
 
     fisher = {n: torch.zeros(p.shape).to(DEVICE)
               for n, p in model.named_parameters() if p.requires_grad}
@@ -343,12 +317,7 @@ def tuning_on_task2(args):
 
     for current_task_id in range(1, 3):
         lr = max(args.lr * args.gamma ** (current_task_id), 0.00005)
-        optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
-        ewc_loss = []
-        all_loss = []
-        counter = []
-        if args.compute_joint_incremental:
-            model = get_benchmark_model(args)
+        optimizer = torch.optim.Adam(model.parameters(), lr=lr)
 
         if args.reboot:
             if current_task_id > 1:
@@ -383,7 +352,7 @@ def tuning_on_task2(args):
 
                 prev_model = get_benchmark_model(args)
                 prev_model.load_state_dict(model.state_dict())
-                prev_opt = type(optimizer)(prev_model.parameters(), lr=args.lr)
+                prev_opt = type(optimizer)(prev_model.parameters(), lr=lr)
                 prev_opt.load_state_dict(optimizer.state_dict())
 
                 train_single_epoch_approach(args.approach, model, optimizer, train_loader, criterion,
@@ -413,7 +382,7 @@ def tuning_on_task2(args):
                     print('Early stopping!')
                     model = backup_model.to(DEVICE)
                     optimizer = type(backup_opt)(
-                        model.parameters(), lr=args.lr)
+                        model.parameters(), lr=lr)
                     optimizer.load_state_dict(backup_opt.state_dict())
                     if args.approach == 'icarl':
                         res = herdingExemplarsSelector(model, exemplar_loader, exemplars_per_class)
@@ -460,7 +429,7 @@ def tuning_on_task2(args):
                         model.load_state_dict(backup_model.state_dict())
                         model = model.to(DEVICE)
                         optimizer = type(backup_opt)(
-                            model.parameters(), lr=args.lr)
+                            model.parameters(), lr=lr)
                         optimizer.load_state_dict(backup_opt.state_dict())
                     else:
                         model = model.to(DEVICE)
@@ -499,9 +468,6 @@ def tuning_on_task2(args):
                     time = 0
                     trigger_times = 0
                     the_last_loss = 100
-                    #mean = compute_mean_of_exemplars(
-                        #model, train_loader, current_task_id)
-                    #mean_vector.append(torch.stack(mean).numpy())
 
         if current_task_id > 1:
 			# parameters trials on task 2
@@ -518,7 +484,7 @@ def tuning_on_task2(args):
                     prev_model = get_benchmark_model(args)
                     prev_model.load_state_dict(model.state_dict())
                     prev_opt = type(optimizer)(
-                        prev_model.parameters(), lr=args.lr)
+                        prev_model.parameters(), lr=lr)
                     prev_opt.load_state_dict(optimizer.state_dict())
 
                     train_single_epoch_approach(args.approach, model, optimizer, train_loader, criterion,
@@ -538,7 +504,7 @@ def tuning_on_task2(args):
                             backup_model.load_state_dict(
                                 prev_model.state_dict())
                             backup_opt = type(prev_opt)(
-                                backup_model.parameters(), lr=args.lr)
+                                backup_model.parameters(), lr=lr)
                             backup_opt.load_state_dict(prev_opt.state_dict())
                         trigger_times += 1
                         print('trigger times:', trigger_times)
@@ -548,7 +514,7 @@ def tuning_on_task2(args):
                         print('Early stopping!')
                         model = backup_model.to(DEVICE)
                         optimizer = type(backup_opt)(
-                            model.parameters(), lr=args.lr)
+                            model.parameters(), lr=lr)
                         optimizer.load_state_dict(backup_opt.state_dict())
                         if args.approach == 'icarl':
                             res = herdingExemplarsSelector(model, exemplar_loader, exemplars_per_class)
@@ -596,7 +562,7 @@ def tuning_on_task2(args):
                             model.load_state_dict(backup_model.state_dict())
                             model = model.to(DEVICE)
                             optimizer = type(backup_opt)(
-                                model.parameters(), lr=args.lr)
+                                model.parameters(), lr=lr)
                             optimizer.load_state_dict(backup_opt.state_dict())
                         else:
                             model = model.to(DEVICE)

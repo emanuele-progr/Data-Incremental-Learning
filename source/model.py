@@ -1,7 +1,6 @@
 import torch
 import torch.nn as nn
 from torch.nn.functional import relu, avg_pool2d
-from torch.nn.modules import padding
 
 
 class MLP(nn.Module):
@@ -39,11 +38,18 @@ class MLP(nn.Module):
 
 
 def conv3x3(in_planes, out_planes, stride=1):
+	"""3x3 convolution with padding"""
 	return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride,
 					 padding=1, bias=False)
 
 
 class BasicBlock(nn.Module):
+	"""Basic Block for resnet 18 and resnet 32"""
+
+    #BasicBlock and BottleNeck block
+    #have different output size
+    #we use class attribute expansion
+    #to distinct
 	expansion = 1
 
 	def __init__(self, in_planes, planes, stride=1, config={}):
@@ -78,7 +84,10 @@ class BasicBlock(nn.Module):
 		out = relu(out)
 		return out
 
+
 class Bottleneck(nn.Module):
+    """Residual block for resnet50 and over"""
+	
     expansion = 4
 
     def __init__(self, in_planes, planes, stride=1, config={}):
@@ -125,6 +134,8 @@ class Bottleneck(nn.Module):
         return out
 
 class ResNet(nn.Module):
+	"""ResNet structure for resnet18 and resnet50"""
+
 	def __init__(self, block, num_blocks, num_classes, nf, config={}):
 		super(ResNet, self).__init__()
 		self.in_planes = nf
@@ -168,6 +179,7 @@ class ResNet(nn.Module):
 
 
 class ResNet2(nn.Module):
+	"""ResNet structure for resnet32"""
 	def __init__(self, block, num_blocks, num_classes, nf, config={}):
 		super(ResNet2, self).__init__()
 		self.in_planes = nf

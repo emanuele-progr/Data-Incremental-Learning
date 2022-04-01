@@ -3,15 +3,14 @@ from utils import DEVICE
 import copy
 
 
-def train_single_epoch(net, optimizer, loader, criterion, task_id=None):
+def train_single_epoch(net, optimizer, loader, criterion):
 	"""
-	Train the model for a single epoch
+	Train the model for a single epoch standard
 	
 	:param net:
 	:param optimizer:
 	:param loader:
 	:param criterion:
-	:param task_id:
 	:return:
 	"""
 	net = net.to(DEVICE)
@@ -29,12 +28,14 @@ def train_single_epoch(net, optimizer, loader, criterion, task_id=None):
 
 def train_single_epoch_ewc(net, optimizer, loader, criterion, old_params, fisher, task_id=None, config = None, index = None):
 	"""
-	Train the model for a single epoch
+	Train the model for a single epoch with ewc penalty
 	
 	:param net:
 	:param optimizer:
 	:param loader:
 	:param criterion:
+	:param old_params:
+	:param fisher:
 	:param task_id:
 	:return:
 	"""
@@ -56,12 +57,13 @@ def train_single_epoch_ewc(net, optimizer, loader, criterion, old_params, fisher
 
 def train_single_epoch_fd(net, optimizer, loader, criterion, old_model, task_id=None, config = None, index = None):
 	"""
-	Train the model for a single epoch
+	Train the model for a single epoch with fd penalty
 	
 	:param net:
 	:param optimizer:
 	:param loader:
 	:param criterion:
+	:param old_model:
 	:param task_id:
 	:return:
 	"""
@@ -84,12 +86,13 @@ def train_single_epoch_fd(net, optimizer, loader, criterion, old_model, task_id=
 
 def train_single_epoch_lwf(net, optimizer, loader, criterion, old_model, task_id=None, config=None, index=None):
 	"""
-	Train the model for a single epoch
+	Train the model for a single epoch with lwf penalty
 	
 	:param net:
 	:param optimizer:
 	:param loader:
 	:param criterion:
+	:param old_model:
 	:param task_id:
 	:return:
 	"""
@@ -116,12 +119,13 @@ def train_single_epoch_lwf(net, optimizer, loader, criterion, old_model, task_id
 
 def train_single_epoch_focal(net, optimizer, loader, criterion, old_model, task_id=None, config=None, index=None):
 	"""
-	Train the model for a single epoch
+	Train the model for a single epoch with focal distillation penalty
 	
 	:param net:
 	:param optimizer:
 	:param loader:
 	:param criterion:
+	:param old_model:
 	:param task_id:
 	:return:
 	"""
@@ -150,12 +154,13 @@ def train_single_epoch_focal(net, optimizer, loader, criterion, old_model, task_
 
 def train_single_epoch_focal_fd(net, optimizer, loader, criterion, old_model, task_id=None, config=None, index=None):
 	"""
-	Train the model for a single epoch
+	Train the model for a single epoch with focal feature distillation penalty
 	
 	:param net:
 	:param optimizer:
 	:param loader:
 	:param criterion:
+	:param old_model:
 	:param task_id:
 	:return:
 	"""
@@ -180,12 +185,13 @@ def train_single_epoch_focal_fd(net, optimizer, loader, criterion, old_model, ta
 
 def train_single_epoch_iCarl(net, optimizer, loader, criterion, old_model, task_id=None, config=None, index=None):
 	"""
-	Train the model for a single epoch
+	Train the model for a single epoch with icarl penalty
 	
 	:param net:
 	:param optimizer:
 	:param loader:
 	:param criterion:
+	:param old_model:
 	:param task_id:
 	:return:
 	"""
@@ -215,9 +221,9 @@ def train_single_epoch_iCarl(net, optimizer, loader, criterion, old_model, task_
 
 
 
-def eval_single_epoch(net, loader, criterion, task_id=None):
+def eval_single_epoch(net, loader, criterion):
 	"""
-	Evaluate the model for single epoch
+	Evaluate the model for single epoch standard
 	
 	:param net:
 	:param loader:
@@ -243,13 +249,55 @@ def eval_single_epoch(net, loader, criterion, task_id=None):
 	avg_acc = 100.0 * float(correct.numpy()) / len(loader.dataset)
 	return {'accuracy': avg_acc, 'loss': test_loss}
 
-def eval_single_epoch_fd(net, loader, criterion, old_model, task_id=None, config=None, index=None):
+
+def eval_single_epoch_ewc(net, loader, criterion, fisher, old_params, task_id=None, config=None, index=None):
 	"""
 	Evaluate the model for single epoch
 	
 	:param net:
 	:param loader:
 	:param criterion:
+	:param fisher:
+	:param old_params:
+	:param task_id:
+	:return:
+	"""
+	net = net.to(DEVICE)
+	net.eval()
+	test_loss = 0
+	correct = 0
+	loss_penalty = 0
+	ewc_loss = 0
+
+	if task_id > 1:
+		loss_penalty = ewc_penalty(net, fisher, old_params, config, index)
+	else:
+		loss_penalty = torch.tensor(0.0)
+
+	with torch.no_grad():
+		for data, target in loader:
+			data = data.to(DEVICE)
+			target = target.to(DEVICE)
+			output = net(data)
+			test_loss += (criterion(output, target).item() + loss_penalty.item()) * loader.batch_size
+			ewc_loss += loss_penalty.item() * loader.batch_size
+			pred = output.data.max(1, keepdim=True)[1]
+			correct += pred.eq(target.data.view_as(pred)).sum()
+	test_loss /= len(loader.dataset)
+	ewc_loss /= len(loader.dataset)
+	correct = correct.to('cpu')
+	avg_acc = 100.0 * float(correct.numpy()) / len(loader.dataset)
+	return {'accuracy': avg_acc, 'loss': test_loss, 'ewcloss': ewc_loss}
+
+
+def eval_single_epoch_fd(net, loader, criterion, old_model, task_id=None, config=None, index=None):
+	"""
+	Evaluate the model for single epoch with feature distillation penalty
+	
+	:param net:
+	:param loader:
+	:param criterion:
+	:param old_model:
 	:param task_id:
 	:return:
 	"""
@@ -280,11 +328,12 @@ def eval_single_epoch_fd(net, loader, criterion, old_model, task_id=None, config
 
 def eval_single_epoch_lwf(net, loader, criterion, old_model, task_id=None, config=None, index=None):
 	"""
-	Evaluate the model for single epoch
+	Evaluate the model for single epoch with lwf penalty
 	
 	:param net:
 	:param loader:
 	:param criterion:
+	:param old_model:
 	:param task_id:
 	:return:
 	"""
@@ -315,11 +364,12 @@ def eval_single_epoch_lwf(net, loader, criterion, old_model, task_id=None, confi
 
 def eval_single_epoch_focal(net, loader, criterion, old_model, task_id=None, config=None, index=None):
 	"""
-	Evaluate the model for single epoch
+	Evaluate the model for single epoch with focal distillation penalty
 	
 	:param net:
 	:param loader:
 	:param criterion:
+	:param old_model:
 	:param task_id:
 	:return:
 	"""
@@ -352,11 +402,12 @@ def eval_single_epoch_focal(net, loader, criterion, old_model, task_id=None, con
 
 def eval_single_epoch_focal_fd(net, loader, criterion, old_model, task_id=None, config=None, index=None):
 	"""
-	Evaluate the model for single epoch
+	Evaluate the model for single epoch with focal feature distillation penalty
 	
 	:param net:
 	:param loader:
 	:param criterion:
+	:param old_model:
 	:param task_id:
 	:return:
 	"""
@@ -387,50 +438,16 @@ def eval_single_epoch_focal_fd(net, loader, criterion, old_model, task_id=None, 
 	avg_acc = 100.0 * float(correct.numpy()) / len(loader.dataset)
 	return {'accuracy': avg_acc, 'loss': test_loss, 'focal_fd_loss': focal_fd_loss}
 
-def eval_single_epoch_ewc(net, loader, criterion, fisher, old_params, task_id=None, config=None, index=None):
-	"""
-	Evaluate the model for single epoch
-	
-	:param net:
-	:param loader:
-	:param criterion:
-	:param task_id:
-	:return:
-	"""
-	net = net.to(DEVICE)
-	net.eval()
-	test_loss = 0
-	correct = 0
-	loss_penalty = 0
-	ewc_loss = 0
-
-	if task_id > 1:
-		loss_penalty = ewc_penalty(net, fisher, old_params, config, index)
-	else:
-		loss_penalty = torch.tensor(0.0)
-
-	with torch.no_grad():
-		for data, target in loader:
-			data = data.to(DEVICE)
-			target = target.to(DEVICE)
-			output = net(data)
-			test_loss += (criterion(output, target).item() + loss_penalty.item()) * loader.batch_size
-			ewc_loss += loss_penalty.item() * loader.batch_size
-			pred = output.data.max(1, keepdim=True)[1]
-			correct += pred.eq(target.data.view_as(pred)).sum()
-	test_loss /= len(loader.dataset)
-	ewc_loss /= len(loader.dataset)
-	correct = correct.to('cpu')
-	avg_acc = 100.0 * float(correct.numpy()) / len(loader.dataset)
-	return {'accuracy': avg_acc, 'loss': test_loss, 'ewcloss': ewc_loss}
 
 def eval_single_epoch_iCarl(net, loader, criterion, old_model, exemplar_means, task_id, config=None, index=None):
 	"""
-	Evaluate the model for single epoch
+	Evaluate the model for single epoch with icarl penalty
 	
 	:param net:
 	:param loader:
 	:param criterion:
+	:param old_model:
+	:param exemplar_means:
 	:param task_id:
 	:return:
 	"""
@@ -483,7 +500,7 @@ def eval_single_epoch_iCarl(net, loader, criterion, old_model, exemplar_means, t
 
 def final_eval(net, loader, criterion, task_id=None):
     """
-    Evaluate the model for single epoch
+    Final model evaluation
     
     :param net:
     :param loader:
@@ -516,11 +533,12 @@ def final_eval(net, loader, criterion, task_id=None):
 
 def final_eval_iCarl(net, loader, criterion, exemplar_means, task_id=None):
     """
-    Evaluate the model for single epoch
+    Final model evaluation with NME classifier (icarl)
     
     :param net:
     :param loader:
     :param criterion:
+	:param exemplar_means:
     :param task_id:
     :return:
     """
@@ -554,6 +572,7 @@ def final_eval_iCarl(net, loader, criterion, exemplar_means, task_id=None):
     Y = sum(Y, [])
     return {'accuracy': avg_acc, 'loss': test_loss}, X, Y
 
+# penalty functions
 
 def ewc_penalty(model, fisher, older_params, config, index):
 	if config is not None:
@@ -639,6 +658,7 @@ def icarl_penalty(out, out_old, config, index):
 
 	return loss
 
+# NME NCM classifier
 
 def classify(features, targets, exemplar_means):
 	# expand means to all batch images
@@ -664,7 +684,7 @@ def classify(features, targets, exemplar_means):
 
 
 def focal_distillation_cross_entropy(outputs, targets, exp=1.0, size_average=True, eps=1e-5, alpha=1, beta=0, mask=None):
-	"""Calculates cross-entropy with temperature scaling"""
+	"""Calculates cross-entropy with temperature scaling and focal distillation contribute"""
 	focal_ce = torch.tensor(0.0)
 	out = torch.nn.functional.softmax(outputs, dim=1)
 	tar = torch.nn.functional.softmax(targets, dim=1)
@@ -707,6 +727,8 @@ def cross_entropy(outputs, targets, exp=1.0, size_average=True, eps=1e-5):
 	return ce
 
 
+# utility functions to discriminate between train and eval approach
+
 def train_single_epoch_approach(approach, model, optimizer, train_loader, criterion,
                                                old_params, old_model, fisher, current_task_id, config=None, index=None):
 	if approach == 'ewc':
@@ -728,7 +750,7 @@ def train_single_epoch_approach(approach, model, optimizer, train_loader, criter
 		train_single_epoch_iCarl(model, optimizer, train_loader, criterion, old_model, current_task_id, config, index)
 	else:
 		train_single_epoch(
-			model, optimizer, train_loader, criterion, current_task_id)
+			model, optimizer, train_loader, criterion)
 
 
 
@@ -753,6 +775,6 @@ def eval_single_epoch_approach(approach, model, val_loader, criterion, old_model
 		metrics = eval_single_epoch_iCarl(model, val_loader, criterion, old_model, exemplar_means, current_task_id)
 	else:
 		metrics = eval_single_epoch(
-			model, val_loader, criterion, current_task_id)
+			model, val_loader, criterion)
 	
 	return metrics
