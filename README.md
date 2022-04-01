@@ -8,20 +8,20 @@ Code started from [here](https://github.com/imirzadeh/stable-continual-learning)
 ## Approaches
 ### Elastic Weight Consolidation
 ```bash
--- approach ewc [arxiv](https://arxiv.org/abs/1612.00796)
-```
+-- approach ewc ``` [arxiv](https://arxiv.org/abs/1612.00796)
+
 ### Learning Without Forgetting
 ```bash
---approach lwf [arxiv](https://arxiv.org/abs/1606.09282)
-```
+--approach lwf ```[arxiv](https://arxiv.org/abs/1606.09282)
+
 ### iCaRL
 ```bash
---approach icarl [arxiv](https://arxiv.org/abs/1611.07725)| [code](https://github.com/srebuffi/iCaRL)
-```
+--approach icarl ```[arxiv](https://arxiv.org/abs/1611.07725)| [code](https://github.com/srebuffi/iCaRL)
+
 ### Focal distillation
 ```bash
---approach focal_d [arxiv](https://arxiv.org/abs/2011.09161)
-```
+--approach focal_d ```[arxiv](https://arxiv.org/abs/2011.09161)
+
 
 ## Installation
 
