@@ -16,7 +16,22 @@ bash setup_and_install.sh
 ```
 
 ## Usage
+### arguments
+- --dataset : cifar10, cifar100, mnist, imagenet
+- --tasks: number of dataset splits
+- --epochs-per-task: number of epochs per task
+- --lr: learning rate
+- --gamma: lr decay rate, value between (0,1)
+- --batch-size
+- --dropout: dropout regularization. value between [0,1], 0 means no dropout
+- --exemplars_per_class: number of exemplar to retain for each class
+- --seed: value for dataset random split and reproducibility  
+- --net: resnet32, resnet18, resnet50
+- --approach: fine_tuning, ewc, lwf, icarl, fd, focal_d, focal_fd
+- --compute_joint_incremental[optional]: compute upper bound (joint incremental)
+- --grid_search[optional]: starts hyperparameters tuning on task 2 based on "grid_search_config.txt"
 - standard experiment on cifar100 with focal distillation approach
+### usage examples
 ```bash
 python -m main --dataset cifar100 --tasks 10 --epochs-per-task 50 --lr 0.001 --gamma 1.0 --batch-size 64 --dropout 0.0 --exemplars_per_class 20 --seed 1234 --net resnet32 --approach focal_d
 
