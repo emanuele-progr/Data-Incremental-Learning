@@ -1,6 +1,6 @@
 # Data-incremental Learning
 
-Data-incremental learning is a Python framework for dealing and experimenting with a data-incremental scenario.  
+Data-incremental learning is a Python framework for dealing and experimenting with data-incremental scenario.  
 This is a particular scenario of incremental learning where, unlike the more famous class incremental learning, the classes are fixed.
 The peculiarity of this scenario is that we start with a few examples per class and the examples arrive over time in subsequent tasks and we want to improve the model incrementally using only the new data.
 
