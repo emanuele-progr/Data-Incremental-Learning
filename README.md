@@ -18,6 +18,7 @@ bash setup_and_install.sh
 ## Usage
 
 ```bash
+python -m main --dataset cifar100 --tasks 10 --epochs-per-task 50 --lr 0.001 --gamma 1.0 --batch-size 64 --dropout 0.0 --exemplars_per_class 20 --seed 1234 --net resnet32 --approach focal_d
 
 ```
 
