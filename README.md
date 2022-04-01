@@ -8,7 +8,9 @@ Code started from [here](https://github.com/imirzadeh/stable-continual-learning)
 ## Approaches
 ### Elastic Weight Consolidation
 ```bash
--- approach ewc ``` [arxiv](https://arxiv.org/abs/1612.00796)
+-- approach ewc 
+``` 
+[arxiv](https://arxiv.org/abs/1612.00796)
 
 ### Learning Without Forgetting
 ```bash
