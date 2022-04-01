@@ -30,10 +30,21 @@ bash setup_and_install.sh
 - --approach: fine_tuning, ewc, lwf, icarl, fd, focal_d, focal_fd
 - --compute_joint_incremental[optional]: compute upper bound (joint incremental)
 - --grid_search[optional]: starts hyperparameters tuning on task 2 based on "grid_search_config.txt"
-- standard experiment on cifar100 with focal distillation approach
+
 ### usage examples
+- standard experiment on cifar100 with focal distillation approach
 ```bash
-python -m main --dataset cifar100 --tasks 10 --epochs-per-task 50 --lr 0.001 --gamma 1.0 --batch-size 64 --dropout 0.0 --exemplars_per_class 20 --seed 1234 --net resnet32 --approach focal_d
+python -m main --dataset cifar100 --tasks 10 --epochs-per-task 50 --lr 0.001 --gamma 1.0 --batch-size 64 --dropout 0.0 --exemplars_per_class 20 --seed 1234 --net resnet18 --approach focal_d
+
+```
+- standard experiment on MNIST with feature distillation approach 
+```bash
+python -m main --dataset mnist --tasks 50 --epochs-per-task 50 --lr 0.001 --gamma 1.0 --batch-size 64 --dropout 0.0 --exemplars_per_class 0 --seed 1234 --net resnet32 --approach fd
+
+```
+- experiment on imagenet with focal distillation approach and hyperparameters(lambda, alpha, beta) grid_search on task 2
+```bash
+python -m main --dataset imagenet --tasks 10 --epochs-per-task 50 --lr 0.001 --gamma 1.0 --batch-size 64 --dropout 0.0 --exemplars_per_class 20 --seed 1234 --net resnet50 --approach focal_d --grid_search
 
 ```
 
