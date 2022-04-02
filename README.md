@@ -58,6 +58,9 @@ bash setup_and_install.sh
 - --seed: value for dataset random split and reproducibility  
 - --net: resnet32, resnet18, resnet50
 - --approach: fine_tuning, ewc, lwf, icarl, fd, focal_d, focal_fd
+- --lamb: lambda hyperparameter(ewc, lwf, icarl, fd, focal_d, focal_fd)
+- --alpha: alpha hyperparameter(focal_d, focal_fd)
+- --beta: beta hyperparameter(focal_d, focal_fd)
 - --compute_joint_incremental[optional]: compute upper bound (joint incremental)
 - --grid_search[optional]: starts hyperparameters tuning on task 2 based on "grid_search_config.txt"
 
