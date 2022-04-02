@@ -9,24 +9,30 @@ Code started from [here](https://github.com/imirzadeh/stable-continual-learning)
 ### Elastic Weight Consolidation
 ```bash
 -- approach ewc 
+-- lamb (default = 1.0)
 ``` 
 [arxiv](https://arxiv.org/abs/1612.00796)
 
 ### Learning Without Forgetting
 ```bash
---approach lwf 
+-- approach lwf 
+-- lamb (default = 1.0)
 ```
 [arxiv](https://arxiv.org/abs/1606.09282)
 
 ### iCaRL
 ```bash
---approach icarl
+-- approach icarl
+-- lamb (default = 1.0)
 ```
-[arxiv](https://arxiv.org/abs/1611.07725)| [code](https://github.com/srebuffi/iCaRL)
+[arxiv](https://arxiv.org/abs/1611.07725)  |   [code](https://github.com/srebuffi/iCaRL)
 
 ### Focal distillation
 ```bash
---approach focal_d
+-- approach focal_d
+-- lamb
+-- alpha
+-- beta
 ```
 [arxiv](https://arxiv.org/abs/2011.09161)
 
