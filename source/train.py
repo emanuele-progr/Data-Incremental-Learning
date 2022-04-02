@@ -575,10 +575,10 @@ def final_eval_iCarl(net, loader, criterion, exemplar_means, task_id=None):
 # penalty functions
 
 def ewc_penalty(model, fisher, older_params, config, index):
-	if config is not None:
+	if index is not None:
 		lamb = config["lambda"][index]
 	else:	
-		lamb = 1000
+		lamb = config['lambda']
 	loss = 0
 	loss_reg = 0
 	for n, p in model.named_parameters():
@@ -590,50 +590,50 @@ def ewc_penalty(model, fisher, older_params, config, index):
 	return loss
 
 def feature_distillation_penalty(feat, feat_old, config, index):
-	if config is not None:
+	if index is not None:
 		lamb = config["lambda"][index]
 	else:	
-		lamb = 0
+		lamb = config["lambda"]
 	loss = lamb * torch.mean(torch.norm(feat - feat_old, p=2, dim=1))
 
 	return loss
 
 def knowledge_distillation_penalty(outputs, outputs_old, config, index):
 
-	if config is not None:
+	if index is not None:
 		lamb = config["lambda"][index]
 	else:	
-		lamb = 1
+		lamb = config["lambda"]
 	T = 2
 	loss = lamb * cross_entropy(outputs, outputs_old, exp = 1.0 / T)
 
 	return loss
 
 def focal_distillation_penalty(outputs, outputs_old, mask, config, index):
-	if config is not None:
+	if index is not None:
 		lamb = config["lambda"][index]
 		beta = config["beta"][index]
 		alpha = config["alpha"][index]
 
 	else:
-		lamb = 0.1
-		alpha = 1
-		beta = 10
+		lamb = config["lambda"]
+		alpha = config["alpha"]
+		beta = config["beta"]
 	T = 2
 	loss = lamb * focal_distillation_cross_entropy(outputs, outputs_old, exp = 1.0 / T, beta = beta, alpha= alpha, mask = mask)
 
 	return loss
 
 def focal_fd_penalty(feat, feat_old, mask, config, index):
-	if config is not None:
+	if index is not None:
 		lamb = config["lambda"][index]
 		beta = config["beta"][index]
 		alpha = config["alpha"][index]
 
 	else:
-		lamb = 0.01
-		alpha = 1
-		beta = 10
+		lamb = config["lambda"]
+		alpha = config["alpha"]
+		beta = config["beta"]
 	
 	loss_1 = alpha * torch.mean(torch.norm(feat - feat_old, p=2, dim=1))
 	masked_difference = torch.flatten(mask) * torch.norm(feat - feat_old, p=2, dim=1)
@@ -648,10 +648,10 @@ def focal_fd_penalty(feat, feat_old, mask, config, index):
 
 def icarl_penalty(out, out_old, config, index):
 
-	if config is not None:
+	if index is not None:
 		lamb = config["lambda"][index]
 	else:	
-		lamb = 1
+		lamb = config["lambda"]
 	g = torch.sigmoid(torch.cat(out))
 	q_i = torch.sigmoid(torch.cat(out_old))
 	loss = lamb * torch.nn.functional.binary_cross_entropy(g, q_i)
@@ -740,7 +740,7 @@ def train_single_epoch_approach(approach, model, optimizer, train_loader, criter
 	elif approach == 'fd':
 		train_single_epoch_fd(
 			model, optimizer, train_loader, criterion, old_model, current_task_id, config, index) 
-	elif approach == 'focal_kd':
+	elif approach == 'focal_d':
 		train_single_epoch_focal(
 			model, optimizer, train_loader, criterion, old_model, current_task_id, config, index)
 	elif approach == 'focal_fd':
@@ -758,21 +758,21 @@ def eval_single_epoch_approach(approach, model, val_loader, criterion, old_model
                                        old_params, fisher, exemplar_means, current_task_id, config=None, index=None):
 	if approach == 'ewc':
 		metrics = eval_single_epoch_ewc(
-			model, val_loader, criterion, fisher, old_params, current_task_id)
+			model, val_loader, criterion, fisher, old_params, current_task_id, config, index)
 	elif approach == 'lwf':
 		metrics = eval_single_epoch_lwf(
-			model, val_loader, criterion, old_model, current_task_id)
+			model, val_loader, criterion, old_model, current_task_id, config, index)
 	elif approach == 'fd':
 		metrics = eval_single_epoch_fd(
-			model, val_loader, criterion, old_model, current_task_id)   
-	elif approach == 'focal_kd':
+			model, val_loader, criterion, old_model, current_task_id, config, index)   
+	elif approach == 'focal_d':
 		metrics = eval_single_epoch_focal(
-			model, val_loader, criterion, old_model, current_task_id)
+			model, val_loader, criterion, old_model, current_task_id, config, index)
 	elif approach == 'focal_fd':
 		metrics = eval_single_epoch_focal_fd(
-			model, val_loader, criterion, old_model, current_task_id)
+			model, val_loader, criterion, old_model, current_task_id, config, index)
 	elif approach == 'icarl':                
-		metrics = eval_single_epoch_iCarl(model, val_loader, criterion, old_model, exemplar_means, current_task_id)
+		metrics = eval_single_epoch_iCarl(model, val_loader, criterion, old_model, exemplar_means, current_task_id, config, index)
 	else:
 		metrics = eval_single_epoch(
 			model, val_loader, criterion)

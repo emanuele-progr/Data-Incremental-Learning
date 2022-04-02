@@ -148,15 +148,17 @@ def run_experiment(args):
             prev_opt = type(optimizer)(prev_model.parameters(), lr=lr)
             prev_opt.load_state_dict(optimizer.state_dict())
 
+            conf = {"lambda": args.lamb, "alpha": args.alpha, "beta": args.beta}
+
             train_single_epoch_approach(args.approach, model, optimizer, train_loader, criterion,
-                                        old_params, old_model, fisher, current_task_id)
+                                        old_params, old_model, fisher, current_task_id, conf)
 
             time += 1
             model = model.to(DEVICE)
             val_loader = tasks[current_task_id]['val']
 
             metrics = eval_single_epoch_approach(args.approach, model, val_loader, criterion, old_model,
-                                       old_params, fisher, exemplar_means, current_task_id)
+                                       old_params, fisher, exemplar_means, current_task_id, conf)
 
 
             acc_db, loss_db = log_metrics(
