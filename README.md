@@ -5,6 +5,8 @@ This is a particular scenario of incremental learning where, unlike the more fam
 The peculiarity of this scenario is that we start with a few examples per class and the examples arrive over time in subsequent tasks and we want to improve the model incrementally using only the new data.
 
 Code started from [here](https://github.com/imirzadeh/stable-continual-learning) and was subsequently modified and strongly expanded for the data-incremental scenario. Also, many class-incremental learning approaches implemented in [FACIL](https://github.com/mmasana/FACIL) have been adapted to the data-incremental scenario.
+
+<img width="960" alt="result_magistrale" src="https://user-images.githubusercontent.com/22282000/164989543-09816840-b81e-4c3c-adba-2d52a2f8ed72.png">
 ## Approaches
 ### Elastic Weight Consolidation
 ```bash
